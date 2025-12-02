@@ -3,5 +3,5 @@ venv/
 __pycache__
 uac2timeline.egg-info
 uac.db
-.DS_STORE
+.DS_Store
 
