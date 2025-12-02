@@ -1,0 +1,7 @@
+test_data/
+venv/
+__pycache__
+uac2timeline.egg-info
+uac.db
+.DS_STORE
+
