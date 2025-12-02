@@ -50,3 +50,8 @@ network_patterns = {
 ,
     
 }
+
+
+auth_patterns = {
+    "last": "%{USERNAME:username}\s+%{WORD:tty}\s+%{DAY:day}\s+%{MONTH:month}\s+%{MONTHDAY:monthday}\s+%{TIME:start_time}(?:\s+-\s+(?:%{TIME:end_time}|%{WORD:end_status}))?(?:\s+\(%{TIME:duration}\))?"
+}

@@ -64,6 +64,7 @@ def get_collection_metadata(uac_collection_path: str):
         "hostname": None,
         "os": None,
         "uac_log_md5": None,
+        "timezone_setting": None,
     }
 
     uac_log_path = os.path.join(uac_collection_path, "uac.log")
@@ -78,12 +79,28 @@ def get_collection_metadata(uac_collection_path: str):
         meta["uac_log_md5"] = md5_hash.hexdigest()
         
         # Parse metadata from uac.log
+        import re
+        # Pattern to match timezone offset like +10:30, +1030, -05:00, -0500
+        tz_pattern = re.compile(r'[+-]\d{2}:?\d{2}')
+        
         with open(uac_log_path, "r") as f:
             for line in f:
                 if "Hostname: " in line:
                     meta["hostname"] = line.split(":")[-1].strip()
                 if "Operating system" in line:
                     meta["os"] = line.split(":")[-1].strip()
+                
+                # Extract timezone from first timestamp found
+                if not meta["timezone_setting"]:
+                    tz_match = tz_pattern.search(line)
+                    if tz_match:
+                        tz_offset = tz_match.group()
+                        # Normalize format to +HH:MM
+                        if ':' not in tz_offset:
+                            # Convert +1030 to +10:30
+                            tz_offset = f"{tz_offset[:3]}:{tz_offset[3:]}"
+                        meta["timezone_setting"] = tz_offset
+                        
     except FileNotFoundError:
         logging.error(f"UAC log not found at: {uac_log_path}")
         return None

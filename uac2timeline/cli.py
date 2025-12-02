@@ -23,16 +23,17 @@ def cmd_show_collections(args):
         session.close()
         return
     
-    print(f"\n{'ID':<5} {'Hostname':<30} {'OS':<30} {'Created':<20} {'MD5':<32}")
-    print("-" * 120)
+    print(f"\n{'ID':<5} {'Hostname':<25} {'OS':<15} {'Timezone':<10} {'Created':<20} {'MD5':<10}")
+    print("-" * 95)
     
     for col in collections:
         md5_short = col.uac_log_md5[:8] if col.uac_log_md5 else "N/A"
         created_str = col.created_at.strftime("%Y-%m-%d %H:%M:%S") if col.created_at else "N/A"
-        hostname = (col.hostname[:27] + "...") if len(col.hostname) > 30 else col.hostname
-        os_str = (col.os[:27] + "...") if col.os and len(col.os) > 30 else (col.os or "N/A")
+        hostname = (col.hostname[:22] + "...") if len(col.hostname) > 25 else col.hostname
+        os_str = (col.os[:12] + "...") if col.os and len(col.os) > 15 else (col.os or "N/A")
+        tz_str = col.timezone_setting or "N/A"
         
-        print(f"{col.id:<5} {hostname:<30} {os_str:<30} {created_str:<20} {md5_short:<32}")
+        print(f"{col.id:<5} {hostname:<25} {os_str:<15} {tz_str:<10} {created_str:<20} {md5_short:<10}")
     
     print(f"\nTotal collections: {len(collections)}")
     session.close()

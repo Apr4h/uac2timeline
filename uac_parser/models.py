@@ -11,10 +11,15 @@ class UACCollection(Base):
     hostname = Column(String, nullable=False)
     os = Column(String)
     uac_log_md5 = Column(String, index=True)  # MD5 hash of uac.log for duplicate detection
+    primary_ip_address = Column(String)
+    timezone_setting = Column(String)
     created_at = Column(DateTime, default=datetime.datetime.utcnow)
+
+
     files = relationship("File", back_populates="collection")
     processes = relationship("Process", back_populates="collection")
     network_connections = relationship("NetworkConnection", back_populates="collection")
+    authentications = relationship("Authentication", back_populates="collection")
 
     def __repr__(self):
         return f"<UACCollection(hostname='{self.hostname}')>"
@@ -117,3 +122,22 @@ class NetworkConnection(Base):
 
     def __repr__(self):
         return f"<NetworkConnection(proto='{self.proto}', local='{self.local_addr}:{self.local_port}', pid={self.pid})>"
+
+
+class Authentication(Base):
+    __tablename__ = 'authentications'
+
+    id = Column(Integer, primary_key=True)
+    collection_id = Column(Integer, ForeignKey('uac_collections.id'))
+    uid = Column(Integer)
+    username = Column(String)
+    result = Column(String)
+    time = Column(DateTime)
+    method = Column(String)
+    source = Column(String)
+    destination = Column(String)
+    
+    collection = relationship("UACCollection", back_populates="authentications")
+
+    def __repr__(self):
+        return f"<Authentication(pid={self.pid}, command='{self.command}')>"
