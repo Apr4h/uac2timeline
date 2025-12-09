@@ -15,6 +15,7 @@ setup(
         "sqlalchemy",
         "pygrok",
         "tqdm",
+        "rich",
     ],
     python_requires=">=3.7",
 )

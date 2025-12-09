@@ -1,42 +1,13 @@
 import argparse
 import logging
 from uac_parser.parser import parse_uac_collection
-from uac_parser.database import init_db, get_session, DEFAULT_DB_NAME
-from uac_parser.models import UACCollection
+from uac_parser.output.terminal_output import cmd_show_collections
+from uac_parser.database import DEFAULT_DB_NAME
 
 def cmd_collect(args):
     """Handle the 'collect' subcommand."""
     logging.basicConfig(level=logging.INFO, format='%(levelname)s - %(message)s')
     parse_uac_collection(args.input, threshold=args.threshold)
-
-def cmd_show_collections(args):
-    """Handle the 'show collections' subcommand."""
-    db_path = args.database or DEFAULT_DB_NAME
-    
-    engine = init_db(db_path)
-    session = get_session(engine)
-    
-    collections = session.query(UACCollection).all()
-    
-    if not collections:
-        print(f"No collections found in database: {db_path}")
-        session.close()
-        return
-    
-    print(f"\n{'ID':<5} {'Hostname':<25} {'OS':<15} {'Timezone':<10} {'Created':<20} {'MD5':<10}")
-    print("-" * 95)
-    
-    for col in collections:
-        md5_short = col.uac_log_md5[:8] if col.uac_log_md5 else "N/A"
-        created_str = col.created_at.strftime("%Y-%m-%d %H:%M:%S") if col.created_at else "N/A"
-        hostname = (col.hostname[:22] + "...") if len(col.hostname) > 25 else col.hostname
-        os_str = (col.os[:12] + "...") if col.os and len(col.os) > 15 else (col.os or "N/A")
-        tz_str = col.timezone_setting or "N/A"
-        
-        print(f"{col.id:<5} {hostname:<25} {os_str:<15} {tz_str:<10} {created_str:<20} {md5_short:<10}")
-    
-    print(f"\nTotal collections: {len(collections)}")
-    session.close()
 
 def main():
     parser = argparse.ArgumentParser(
