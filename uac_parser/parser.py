@@ -10,6 +10,7 @@ from tqdm import tqdm
 from .artifacts.files import parse_bodyfile, parse_hash_executables
 from .artifacts.processes import parse_processes
 from .artifacts.netconns import parse_network_connections
+from .artifacts.command_history import parse_command_history
 from .database import check_existing_collection
 
 
@@ -45,6 +46,7 @@ def parse_uac_collection(uac_collection_path: str, output_db_path: str = DEFAULT
     
     processes = parse_processes(uac_collection_path, threshold=threshold)
     netconns = parse_network_connections(uac_collection_path)
+    cmd_history = parse_command_history(uac_collection_path)
     # logins = parse_logins(uac_collection_path)
     # commands = parse_commands(uac_collection_path)
 
@@ -52,6 +54,7 @@ def parse_uac_collection(uac_collection_path: str, output_db_path: str = DEFAULT
     # uac_collection.files = files
     uac_collection.processes = processes
     uac_collection.network_connections = netconns
+    uac_collection.command_history = cmd_history
     
     uac_collection.commit(output_db_path)
     logging.info("UAC collection parsed successfully")

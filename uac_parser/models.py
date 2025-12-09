@@ -20,6 +20,7 @@ class UACCollection(Base):
     processes = relationship("Process", back_populates="collection")
     network_connections = relationship("NetworkConnection", back_populates="collection")
     authentications = relationship("Authentication", back_populates="collection")
+    command_history = relationship("CommandHistory", back_populates="collection")
 
     def __repr__(self):
         return f"<UACCollection(hostname='{self.hostname}')>"
@@ -43,6 +44,10 @@ class UACCollection(Base):
         # Set collection_id on all network connections
         for nc in self.network_connections:
             nc.collection_id = self.id
+        
+        # Set collection_id on all command history entries
+        for cmd in self.command_history:
+            cmd.collection_id = self.id
             
         
         # Bulk insert files and processes for better performance
@@ -50,6 +55,7 @@ class UACCollection(Base):
         session.bulk_save_objects(self.processes)
         
         session.bulk_save_objects(self.network_connections)
+        session.bulk_save_objects(self.command_history)
         session.commit()
 
 
@@ -141,3 +147,18 @@ class Authentication(Base):
 
     def __repr__(self):
         return f"<Authentication(pid={self.pid}, command='{self.command}')>"
+
+
+class CommandHistory(Base):
+    __tablename__ = 'command_history'
+
+    command = Column(String)
+    user = Column(String)
+    time = Column(DateTime)
+    history_file = Column(String)
+    file_index = Column(Integer)
+
+    id = Column(Integer, primary_key=True)
+    collection_id = Column(Integer, ForeignKey('uac_collections.id'))
+    collection = relationship("UACCollection", back_populates="command_history")
+    
