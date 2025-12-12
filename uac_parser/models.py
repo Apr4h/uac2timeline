@@ -48,7 +48,10 @@ class UACCollection(Base):
         # Set collection_id on all command history entries
         for cmd in self.command_history:
             cmd.collection_id = self.id
-            
+        
+        # Set collection_id on all authentications
+        for auth in self.authentications:
+            auth.collection_id = self.id
         
         # Bulk insert files and processes for better performance
         session.bulk_save_objects(self.files)
@@ -56,6 +59,7 @@ class UACCollection(Base):
         
         session.bulk_save_objects(self.network_connections)
         session.bulk_save_objects(self.command_history)
+        session.bulk_save_objects(self.authentications)
         session.commit()
 
 

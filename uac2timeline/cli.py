@@ -1,7 +1,7 @@
 import argparse
 import logging
 from uac_parser.parser import parse_uac_collection
-from uac_parser.output.terminal_output import cmd_show_collections
+from uac_parser.output.terminal_output import cmd_show_collections, cmd_show_stats
 from uac_parser.database import DEFAULT_DB_NAME
 
 def cmd_collect(args):
@@ -51,6 +51,22 @@ def main():
         help=f"Path to database file (default: {DEFAULT_DB_NAME})"
     )
     parser_show_collections.set_defaults(func=cmd_show_collections)
+    
+    # Show stats subcommand
+    parser_show_stats = show_subparsers.add_parser(
+        'stats',
+        help='Display statistics for a specific collection'
+    )
+    parser_show_stats.add_argument(
+        "collection_id",
+        type=int,
+        help="ID of the collection to show statistics for"
+    )
+    parser_show_stats.add_argument(
+        "-d", "--database",
+        help=f"Path to database file (default: {DEFAULT_DB_NAME})"
+    )
+    parser_show_stats.set_defaults(func=cmd_show_stats)
     
     args = parser.parse_args()
     

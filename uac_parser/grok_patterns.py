@@ -53,10 +53,15 @@ network_patterns = {
 
 
 auth_patterns = {
-    "last": "%{USERNAME:username}\s+%{WORD:tty}\s+%{DAY:day}\s+%{MONTH:month}\s+%{MONTHDAY:monthday}\s+%{HOUR:hour}:%{MINUTE:login_minute}\s+(.*\(%{HOUR:duration_hour}:%{MINUTE:duration_minute}\)|.*)"
+    # macOS/BSD last command output
+    # Format: username tty Day Month DD HH:MM - HH:MM (duration) or "still logged in"
+    "LAST_LOGIN": "^%{USERNAME:username}\\s+%{WORD:tty}\\s+%{DAY:day}\\s+%{MONTH:month}\\s+%{MONTHDAY:monthday}\\s+%{HOUR:hour}:%{MINUTE:minute}(?::%{SECOND:second})?\\s+(?:still logged in|.*)$",
+    
+    "SSH_AUTH_SUCCESS": "^%{TIMESTAMP_ISO8601:timestamp}\.%{INT}(?:%{ISO8601_TIMEZONE:tz})\\s+%{DATA:hostname}\\s+%{DATA:provider}\\[%{NUMBER:pid}\\]:\\s+Accepted\\s+%{DATA:auth_method}\\s+for\\s+%{DATA:user}\\s+from\\s+%{IPORHOST:source}\\s+port\\s+%{INT}\\s%{DATA}(\\s+%{DATA:ssh_algo}\\s+%{DATA:fingerprint_algo}:%{DATA:fingerprint})?$"
 }
 
 
 command_history_patterns = {
-    "history": ""
+
+    "SUDO_COMMAND": "^%{TIMESTAMP_ISO8601:timestamp}\\s+%{HOSTNAME:hostname}\\s+sudo(?:\\[%{NUMBER:pid}\\])?:\\s+%{USERNAME:username}\\s+:\\s+TTY=%{DATA:tty}\\s+;\\s+PWD=%{DATA:pwd}\\s+;\\s+USER=%{USERNAME:target_user}\\s+;\\s+COMMAND=%{GREEDYDATA:command}$",
 }
