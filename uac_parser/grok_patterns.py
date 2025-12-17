@@ -65,3 +65,8 @@ command_history_patterns = {
 
     "SUDO_COMMAND": "^%{TIMESTAMP_ISO8601:timestamp}\\s+%{HOSTNAME:hostname}\\s+sudo(?:\\[%{NUMBER:pid}\\])?:\\s+%{USERNAME:username}\\s+:\\s+TTY=%{DATA:tty}\\s+;\\s+PWD=%{DATA:pwd}\\s+;\\s+USER=%{USERNAME:target_user}\\s+;\\s+COMMAND=%{GREEDYDATA:command}$",
 }
+
+
+user_patterns = {
+    "ETC_PASSWD": "^%{USERNAME:user}:%{DATA:password_val}:%{INT:uid}:%{INT:gid}:%{GREEDYDATA:gecos}:%{UNIXPATH:home}:%{UNIXPATH:shell}$"
+}

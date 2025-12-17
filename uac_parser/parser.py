@@ -12,6 +12,7 @@ from .artifacts.processes import parse_processes
 from .artifacts.netconns import parse_network_connections
 from .artifacts.command_history import parse_command_history
 from .artifacts.authentications import parse_authentications
+from .artifacts.users import parse_users
 from .database import check_existing_collection
 
 
@@ -49,6 +50,7 @@ def parse_uac_collection(uac_collection_path: str, output_db_path: str = DEFAULT
     netconns = parse_network_connections(uac_collection_path, threshold=threshold)
     cmd_history = parse_command_history(uac_collection_path)
     authentications = parse_authentications(uac_collection_path, threshold=threshold)
+    users = parse_users(uac_collection_path, collection_os=metadata.get('os'))
     # logins = parse_logins(uac_collection_path)
     # commands = parse_commands(uac_collection_path)
 
@@ -58,6 +60,7 @@ def parse_uac_collection(uac_collection_path: str, output_db_path: str = DEFAULT
     uac_collection.network_connections = netconns
     uac_collection.command_history = cmd_history
     uac_collection.authentications = authentications
+    uac_collection.users = users
     
     uac_collection.commit(output_db_path)
     logging.info("UAC collection parsed successfully")

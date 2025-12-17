@@ -21,6 +21,7 @@ class UACCollection(Base):
     network_connections = relationship("NetworkConnection", back_populates="collection")
     authentications = relationship("Authentication", back_populates="collection")
     command_history = relationship("CommandHistory", back_populates="collection")
+    users = relationship("User", back_populates="collection")
 
     def __repr__(self):
         return f"<UACCollection(hostname='{self.hostname}')>"
@@ -53,6 +54,10 @@ class UACCollection(Base):
         for auth in self.authentications:
             auth.collection_id = self.id
         
+        # Set collection_id on all users
+        for user in self.users:
+            user.collection_id = self.id
+        
         # Bulk insert files and processes for better performance
         session.bulk_save_objects(self.files)
         session.bulk_save_objects(self.processes)
@@ -60,6 +65,7 @@ class UACCollection(Base):
         session.bulk_save_objects(self.network_connections)
         session.bulk_save_objects(self.command_history)
         session.bulk_save_objects(self.authentications)
+        session.bulk_save_objects(self.users)
         session.commit()
 
 
@@ -166,3 +172,20 @@ class CommandHistory(Base):
     collection_id = Column(Integer, ForeignKey('uac_collections.id'))
     collection = relationship("UACCollection", back_populates="command_history")
     
+
+class User(Base):
+    __tablename__ = 'users'
+    
+    id = Column(Integer, primary_key=True)
+    collection_id = Column(Integer, ForeignKey('uac_collections.id'))
+    username = Column(String)
+    uid = Column(Integer)
+    gid = Column(Integer)
+    gecos = Column(String)  # Full name / comment field
+    home = Column(String)  # Home directory
+    shell = Column(String)  # Login shell
+    
+    collection = relationship("UACCollection", back_populates="users")
+    
+    def __repr__(self):
+        return f"<User(username='{self.username}', uid={self.uid})>"
