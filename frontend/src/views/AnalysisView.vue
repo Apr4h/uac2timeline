@@ -450,19 +450,19 @@ function sysInfoValue(row) {
         <div class="flex-1 overflow-auto">
           <div v-if="tabLoading" class="p-8 text-center text-tn-muted">Loading…</div>
           <div v-else-if="!tabData.items?.length" class="p-8 text-center text-tn-muted">No records.</div>
-          <table v-else class="w-full text-xs border-collapse table-fixed">
+          <table v-else class="min-w-full text-xs border-collapse table-fixed">
             <colgroup>
               <col style="width: 2rem" />
               <col
                 v-for="col in activeCols" :key="col"
-                :style="colWidths[col] ? { width: `${colWidths[col]}px` } : {}"
+                :style="{ width: `${colWidths[col] ?? 160}px` }"
               />
               <col style="width: 12rem" />
             </colgroup>
             <thead class="sticky top-0 bg-tn-surface border-b border-tn-border">
               <tr>
                 <!-- Select-all -->
-                <th class="px-2 py-2">
+                <th class="sticky left-0 z-20 bg-tn-surface border-r border-tn-border px-2 py-2">
                   <input
                     type="checkbox"
                     :checked="allArtifactSelected"
@@ -506,12 +506,11 @@ function sysInfoValue(row) {
             </thead>
             <tbody>
               <tr v-for="row in sortedItems" :key="row.id"
-                  :class="[
-                    'border-b border-tn-border',
-                    artifactSelected.has(row.id) ? 'bg-tn-selection hover:bg-tn-selection-hover' : 'hover:bg-tn-raised/40',
-                  ]">
+                  class="group border-b border-tn-border"
+                  :class="artifactSelected.has(row.id) ? 'bg-tn-selection hover:bg-tn-selection-hover' : 'hover:bg-tn-raised/40'">
                 <!-- Checkbox -->
-                <td class="px-2 py-1.5">
+                <td class="sticky left-0 z-10 border-r border-tn-border px-2 py-1.5"
+                    :class="artifactSelected.has(row.id) ? 'bg-tn-selection group-hover:bg-tn-selection-hover' : 'bg-tn-bg group-hover:bg-tn-raised/40'">
                   <input
                     type="checkbox"
                     :checked="artifactSelected.has(row.id)"
