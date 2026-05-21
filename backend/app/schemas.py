@@ -1,7 +1,7 @@
 from __future__ import annotations
 from datetime import datetime
 from typing import Annotated, Any, Optional
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 from pydantic.functional_serializers import PlainSerializer
 
 
@@ -358,6 +358,31 @@ class TaggingApply(BaseModel):
 
 class TaggingRemove(BaseModel):
     tag_id: int
+    artifact_type: str
+    artifact_ids: list[int]
+
+
+class NoteOut(BaseModel):
+    id: int
+    collection_id: int
+    artifact_type: str
+    artifact_id: int
+    content: str
+    created_at: UTCDatetimeReq
+    updated_at: UTCDatetimeReq
+
+    class Config:
+        from_attributes = True
+
+
+class NoteUpsert(BaseModel):
+    collection_id: int
+    artifact_type: str
+    artifact_ids: list[int]
+    content: str = Field(max_length=500)
+
+
+class NoteDelete(BaseModel):
     artifact_type: str
     artifact_ids: list[int]
 

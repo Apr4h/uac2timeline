@@ -59,6 +59,24 @@ class ProcessingLog(Base):
         return f"<ProcessingLog(level='{self.level}', message='{self.message[:40]}')>"
 
 
+class Note(Base):
+    __tablename__ = "notes"
+    __table_args__ = (
+        UniqueConstraint("artifact_type", "artifact_id", name="uq_note"),
+    )
+
+    id            = Column(Integer, primary_key=True)
+    collection_id = Column(Integer, ForeignKey("uac_collections.id"), nullable=False)
+    artifact_type = Column(String, nullable=False)
+    artifact_id   = Column(Integer, nullable=False)
+    content       = Column(String, nullable=False)
+    created_at    = Column(DateTime, default=datetime.datetime.utcnow)
+    updated_at    = Column(DateTime, default=datetime.datetime.utcnow)
+
+    def __repr__(self):
+        return f"<Note({self.artifact_type}#{self.artifact_id})>"
+
+
 class Tag(Base):
     __tablename__ = "tags"
 

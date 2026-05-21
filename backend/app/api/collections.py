@@ -24,7 +24,7 @@ from sqlalchemy.orm import Session
 
 from backend.app.config import UPLOAD_DIR, PARSE_THRESHOLD
 from backend.app.database import get_db
-from backend.app.models import ProcessingJob, ArtifactJob, ProcessingLog
+from backend.app.models import ProcessingJob, ArtifactJob, ProcessingLog, Note
 from backend.app.schemas import (
     CollectionOut, UploadResponse,
     ProcessingJobOut, ProcessingLogOut,
@@ -211,6 +211,7 @@ def delete_collection(collection_id: int, db: Session = Depends(get_db)):
     db.query(CronJob).filter_by(collection_id=collection_id).delete()
     db.query(SystemdService).filter_by(collection_id=collection_id).delete()
     db.query(RcScript).filter_by(collection_id=collection_id).delete()
+    db.query(Note).filter_by(collection_id=collection_id).delete()
 
     # Delete processing jobs (cascade handles artifact_jobs + logs)
     for pjob in db.query(ProcessingJob).filter_by(collection_id=collection_id).all():

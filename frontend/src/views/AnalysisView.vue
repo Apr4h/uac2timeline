@@ -5,6 +5,7 @@ import axios from 'axios'
 import { useTimelineStore } from '../stores/timeline.js'
 import { useCollectionsStore } from '../stores/collections.js'
 import { useTagsStore } from '../stores/tags.js'
+import { useNotesStore } from '../stores/notes.js'
 import { useColumnPrefs } from '../composables/useColumnPrefs.js'
 import TimelineTable from '../components/TimelineTable.vue'
 import FilterBar from '../components/FilterBar.vue'
@@ -13,12 +14,15 @@ import TagBadge from '../components/TagBadge.vue'
 import TagPicker from '../components/TagPicker.vue'
 import ContextMenu from '../components/ContextMenu.vue'
 import FilePreviewModal from '../components/FilePreviewModal.vue'
+import NoteModal from '../components/NoteModal.vue'
+import ConfirmModal from '../components/ConfirmModal.vue'
 
 const route = useRoute()
 const router = useRouter()
 const timelineStore = useTimelineStore()
 const collectionsStore = useCollectionsStore()
 const tagsStore = useTagsStore()
+const notesStore = useNotesStore()
 
 const collectionId = computed(() => Number(route.params.id))
 const collection = ref(null)
@@ -221,7 +225,7 @@ async function onArtifactPickerRemove(tagId) {
   }
 }
 
-// ── Context menu + file preview ───────────────────────────────────────────────
+// ── Context menu + file preview + notes ──────────────────────────────────────
 const FILE_PREVIEW_FIELD = {
   rcscripts:  'path',
   cron:       'source_file',
@@ -230,37 +234,135 @@ const FILE_PREVIEW_FIELD = {
   cmdhistory: 'history_file',
 }
 
-const artifactContextMenu = ref(null)  // { x, y, items } | null
-const previewTarget = ref(null)         // { artifactType, path } | null
+const artifactContextMenu  = ref(null)  // { x, y, items } | null
+const previewTarget        = ref(null)  // { artifactType, path } | null
+const artifactNoteTarget   = ref(null)  // { isBulk, ids?, rowId?, initialContent, notesDiffer }
+const artifactConfirmTarget = ref(null) // { message, isBulk, ids?, rowId? }
 
 function openArtifactContextMenu(row, mouseEvent) {
   const field = FILE_PREVIEW_FIELD[activeTab.value]
   const path = field ? (row[field] ?? null) : null
+  const isBulkCtx = artifactSelected.value.has(row.id) && artifactSelected.value.size > 1
+
+  // ── Note items ──────────────────────────────────────────────────────────────
+  const noteItems = []
+  if (isBulkCtx) {
+    const ids = [...artifactSelected.value]
+    const n = ids.length
+    const rows = ids.map(id => ({ artifactType: activeTab.value, artifactId: id }))
+    const state = notesStore.getBulkNoteState(rows)
+    const label = state.hasAny
+      ? `Edit note for ${n} row${n === 1 ? '' : 's'}`
+      : `Add note to ${n} row${n === 1 ? '' : 's'}`
+    noteItems.push({ label, _action: 'note-edit', _isBulk: true, _ids: ids, _state: state })
+    if (state.hasAny) {
+      noteItems.push({ separator: true })
+      noteItems.push({
+        label: `Delete note from ${state.noteCount} row${state.noteCount === 1 ? '' : 's'}`,
+        _action: 'note-delete', _isBulk: true, _ids: ids, _state: state,
+      })
+    }
+  } else {
+    const note = notesStore.getNoteForRow(activeTab.value, row.id)
+    noteItems.push({
+      label: note ? 'Edit note' : 'Add note',
+      _action: 'note-edit', _isBulk: false, _rowId: row.id, _note: note,
+    })
+    if (note) {
+      noteItems.push({ separator: true })
+      noteItems.push({ label: 'Delete note', _action: 'note-delete', _isBulk: false, _rowId: row.id })
+    }
+  }
+
   artifactContextMenu.value = {
     x: mouseEvent.clientX,
     y: mouseEvent.clientY,
     items: [
-      {
-        label: 'Open file preview',
-        disabled: !path,
-        _path: path,
-        _type: activeTab.value,
-      },
+      { label: 'Open file preview', disabled: !path, _action: 'preview', _path: path },
+      { separator: true },
+      ...noteItems,
     ],
   }
 }
 
 function onArtifactContextMenuSelect(idx) {
   const item = artifactContextMenu.value?.items[idx]
-  if (!item || item.disabled) return
-  previewTarget.value = { artifactType: item._type, path: item._path }
   artifactContextMenu.value = null
+  if (!item || item.disabled || item.separator) return
+
+  if (item._action === 'preview') {
+    previewTarget.value = { artifactType: activeTab.value, path: item._path }
+    return
+  }
+
+  if (item._action === 'note-edit') {
+    if (item._isBulk) {
+      const s = item._state
+      artifactNoteTarget.value = {
+        isBulk: true,
+        ids: item._ids,
+        initialContent: s.allSameContent ? s.commonContent : '',
+        notesDiffer: s.hasAny && !s.allSameContent,
+      }
+    } else {
+      artifactNoteTarget.value = {
+        isBulk: false,
+        rowId: item._rowId,
+        initialContent: item._note?.content ?? '',
+        notesDiffer: false,
+      }
+    }
+    return
+  }
+
+  if (item._action === 'note-delete') {
+    if (item._isBulk) {
+      const n = item._state.noteCount
+      artifactConfirmTarget.value = {
+        message: `Delete note from ${n} row${n === 1 ? '' : 's'}?`,
+        isBulk: true,
+        ids: item._ids,
+      }
+    } else {
+      artifactConfirmTarget.value = {
+        message: 'Delete this note?',
+        isBulk: false,
+        rowId: item._rowId,
+      }
+    }
+  }
+}
+
+async function onArtifactNoteSave(content) {
+  const t = artifactNoteTarget.value
+  artifactNoteTarget.value = null
+  if (!t) return
+  if (t.isBulk) {
+    await notesStore.upsertNote(activeTab.value, t.ids, collectionId.value, content)
+  } else {
+    await notesStore.upsertNote(activeTab.value, [t.rowId], collectionId.value, content)
+  }
+}
+
+async function onArtifactNoteDeleteConfirm() {
+  const t = artifactConfirmTarget.value
+  artifactConfirmTarget.value = null
+  if (!t) return
+  if (t.isBulk) {
+    const ids = t.ids.filter(id => notesStore.getNoteForRow(activeTab.value, id))
+    if (ids.length) await notesStore.deleteNote(activeTab.value, ids)
+  } else {
+    await notesStore.deleteNote(activeTab.value, [t.rowId])
+  }
 }
 
 onMounted(async () => {
   await loadCollection()
-  await tagsStore.fetchTags()
-  await tagsStore.fetchCollectionTaggings(collectionId.value)
+  await Promise.all([
+    tagsStore.fetchTags(),
+    tagsStore.fetchCollectionTaggings(collectionId.value),
+    notesStore.fetchCollectionNotes(collectionId.value),
+  ])
   timelineStore.resetFilters()
   loadTab()
 })
@@ -499,6 +601,7 @@ function sysInfoValue(row) {
                 :style="{ width: `${colWidths[col] ?? 160}px` }"
               />
               <col style="width: 12rem" />
+              <col style="width: 12rem" />
             </colgroup>
             <thead class="sticky top-0 bg-tn-surface border-b border-tn-border">
               <tr>
@@ -541,6 +644,8 @@ function sysInfoValue(row) {
                     @mousedown.stop.prevent="startResize(col, $event)"
                   />
                 </th>
+                <!-- Note column header -->
+                <th class="text-left px-3 py-2 font-medium font-mono text-tn-fg-dim whitespace-nowrap">note</th>
                 <!-- Tags column header -->
                 <th class="text-left px-3 py-2 font-medium font-mono text-tn-fg-dim whitespace-nowrap">tags</th>
               </tr>
@@ -565,6 +670,14 @@ function sysInfoValue(row) {
                     class="px-3 py-1.5 font-mono text-tn-fg-dim truncate"
                     :title="String(row[col] ?? '')">
                   {{ fmtCell(row[col]) }}
+                </td>
+                <!-- Note cell -->
+                <td class="px-3 py-1.5 max-w-48" @click.stop>
+                  <span
+                    v-if="notesStore.getNoteForRow(activeTab, row.id)"
+                    class="text-xs text-tn-fg-dim font-mono truncate block max-w-full cursor-default"
+                    :title="notesStore.getNoteForRow(activeTab, row.id)?.content"
+                  >{{ notesStore.getNoteForRow(activeTab, row.id)?.content }}</span>
                 </td>
                 <!-- Tags cell -->
                 <td class="px-3 py-1.5 relative" @click.stop>
@@ -656,6 +769,27 @@ function sysInfoValue(row) {
     :artifact-type="previewTarget.artifactType"
     :path="previewTarget.path"
     @close="previewTarget = null"
+  />
+
+  <!-- Note modal -->
+  <NoteModal
+    v-if="artifactNoteTarget"
+    :initial-content="artifactNoteTarget.initialContent"
+    :is-bulk="artifactNoteTarget.isBulk"
+    :row-count="artifactNoteTarget.isBulk ? artifactNoteTarget.ids.length : 1"
+    :notes-differ="artifactNoteTarget.notesDiffer"
+    @save="onArtifactNoteSave"
+    @close="artifactNoteTarget = null"
+  />
+
+  <!-- Confirm delete modal -->
+  <ConfirmModal
+    v-if="artifactConfirmTarget"
+    :message="artifactConfirmTarget.message"
+    confirm-label="Delete"
+    :destructive="true"
+    @confirm="onArtifactNoteDeleteConfirm"
+    @close="artifactConfirmTarget = null"
   />
 </template>
 

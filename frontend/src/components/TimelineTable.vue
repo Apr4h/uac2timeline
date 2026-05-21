@@ -1,10 +1,13 @@
 <script setup>
 import { ref, computed } from 'vue'
 import { useTagsStore } from '../stores/tags.js'
+import { useNotesStore } from '../stores/notes.js'
 import TagBadge from './TagBadge.vue'
 import TagPicker from './TagPicker.vue'
 import ContextMenu from './ContextMenu.vue'
 import FilePreviewModal from './FilePreviewModal.vue'
+import NoteModal from './NoteModal.vue'
+import ConfirmModal from './ConfirmModal.vue'
 
 const props = defineProps({
   events: Array,
@@ -15,6 +18,7 @@ const props = defineProps({
 const emit = defineEmits(['loadMore'])
 
 const tagsStore = useTagsStore()
+const notesStore = useNotesStore()
 
 // ── Row expansion ─────────────────────────────────────────────────────────────
 const expanded = ref(new Set())
@@ -193,30 +197,144 @@ function getPreviewPath(ev) {
   return field ? (ev.details?.[field] ?? null) : null
 }
 
-const contextMenu = ref(null)   // { x, y, ev } | null
-const previewTarget = ref(null) // { artifactType, path } | null
+const contextMenu    = ref(null)  // { x, y, items } | null
+const previewTarget  = ref(null)  // { artifactType, path } | null
+const noteModalTarget  = ref(null)  // { isBulk, rows?, ev?, initialContent, notesDiffer }
+const confirmTarget  = ref(null)  // { message, rows?, ev? }
 
 function openContextMenu(ev, mouseEvent) {
   const previewPath = getPreviewPath(ev)
+  const isBulkCtx = selected.value.has(rowKey(ev)) && selected.value.size > 1
+
+  // ── Note items ──────────────────────────────────────────────────────────────
+  const noteItems = []
+  if (isBulkCtx) {
+    const rows = (props.events ?? [])
+      .filter(e => selected.value.has(rowKey(e)))
+      .map(e => ({ artifactType: e.artifact_type, artifactId: e.id }))
+    const n = rows.length
+    const state = notesStore.getBulkNoteState(rows)
+    const label = (state.hasAny && !state.allSameContent)
+      ? `Edit note for ${n} row${n === 1 ? '' : 's'}`
+      : state.hasAny
+        ? `Edit note for ${n} row${n === 1 ? '' : 's'}`
+        : `Add note to ${n} row${n === 1 ? '' : 's'}`
+    noteItems.push({ label, _action: 'note-edit', _isBulk: true, _rows: rows, _state: state })
+    if (state.hasAny) {
+      noteItems.push({ separator: true })
+      noteItems.push({
+        label: `Delete note from ${state.noteCount} row${state.noteCount === 1 ? '' : 's'}`,
+        _action: 'note-delete', _isBulk: true, _rows: rows, _state: state,
+      })
+    }
+  } else {
+    const note = notesStore.getNoteForRow(ev.artifact_type, ev.id)
+    noteItems.push({
+      label: note ? 'Edit note' : 'Add note',
+      _action: 'note-edit', _isBulk: false, _ev: ev, _note: note,
+    })
+    if (note) {
+      noteItems.push({ separator: true })
+      noteItems.push({ label: 'Delete note', _action: 'note-delete', _isBulk: false, _ev: ev })
+    }
+  }
+
   contextMenu.value = {
     x: mouseEvent.clientX,
     y: mouseEvent.clientY,
     items: [
-      {
-        label: 'Open file preview',
-        disabled: !previewPath,
-        _path: previewPath,
-        _type: ev.artifact_type,
-      },
+      { label: 'Open file preview', disabled: !previewPath, _action: 'preview', _path: previewPath, _type: ev.artifact_type },
+      { separator: true },
+      ...noteItems,
     ],
   }
 }
 
 function onContextMenuSelect(idx) {
   const item = contextMenu.value?.items[idx]
-  if (!item || item.disabled) return
-  previewTarget.value = { artifactType: item._type, path: item._path }
   contextMenu.value = null
+  if (!item || item.disabled || item.separator) return
+
+  if (item._action === 'preview') {
+    previewTarget.value = { artifactType: item._type, path: item._path }
+    return
+  }
+
+  if (item._action === 'note-edit') {
+    if (item._isBulk) {
+      const s = item._state
+      noteModalTarget.value = {
+        isBulk: true,
+        rows: item._rows,
+        initialContent: s.allSameContent ? s.commonContent : '',
+        notesDiffer: s.hasAny && !s.allSameContent,
+      }
+    } else {
+      noteModalTarget.value = {
+        isBulk: false,
+        ev: item._ev,
+        initialContent: item._note?.content ?? '',
+        notesDiffer: false,
+      }
+    }
+    return
+  }
+
+  if (item._action === 'note-delete') {
+    if (item._isBulk) {
+      const n = item._state.noteCount
+      confirmTarget.value = {
+        message: `Delete note from ${n} row${n === 1 ? '' : 's'}?`,
+        isBulk: true,
+        rows: item._rows,
+      }
+    } else {
+      confirmTarget.value = {
+        message: 'Delete this note?',
+        isBulk: false,
+        ev: item._ev,
+      }
+    }
+  }
+}
+
+async function onNoteSave(content) {
+  const t = noteModalTarget.value
+  noteModalTarget.value = null
+  if (!t || !props.collectionId) return
+  if (t.isBulk) {
+    const grouped = {}
+    for (const r of t.rows) {
+      if (!grouped[r.artifactType]) grouped[r.artifactType] = []
+      grouped[r.artifactType].push(r.artifactId)
+    }
+    for (const [type, ids] of Object.entries(grouped)) {
+      await notesStore.upsertNote(type, ids, props.collectionId, content)
+    }
+  } else {
+    await notesStore.upsertNote(t.ev.artifact_type, [t.ev.id], props.collectionId, content)
+  }
+}
+
+async function onNoteDeleteConfirm() {
+  const t = confirmTarget.value
+  confirmTarget.value = null
+  if (!t) return
+  if (t.isBulk) {
+    const grouped = {}
+    for (const r of t.rows) {
+      const note = notesStore.getNoteForRow(r.artifactType, r.artifactId)
+      if (note) {
+        if (!grouped[r.artifactType]) grouped[r.artifactType] = []
+        grouped[r.artifactType].push(r.artifactId)
+      }
+    }
+    for (const [type, ids] of Object.entries(grouped)) {
+      await notesStore.deleteNote(type, ids)
+    }
+  } else {
+    await notesStore.deleteNote(t.ev.artifact_type, [t.ev.id])
+  }
 }
 </script>
 
@@ -238,18 +356,19 @@ function onContextMenuSelect(idx) {
             <th class="text-left px-3 py-2 text-xs text-tn-fg-dim font-medium w-44">Timestamp</th>
             <th class="text-left px-3 py-2 text-xs text-tn-fg-dim font-medium w-28">Type</th>
             <th class="text-left px-3 py-2 text-xs text-tn-fg-dim font-medium">Summary</th>
+            <th class="text-left px-3 py-2 text-xs text-tn-fg-dim font-medium w-48">Note</th>
             <th class="text-left px-3 py-2 text-xs text-tn-fg-dim font-medium w-48">Tags</th>
           </tr>
         </thead>
         <tbody>
           <template v-if="loading">
             <tr>
-              <td colspan="5" class="px-3 py-8 text-center text-tn-muted">Loading…</td>
+              <td colspan="6" class="px-3 py-8 text-center text-tn-muted">Loading…</td>
             </tr>
           </template>
           <template v-else-if="!events?.length">
             <tr>
-              <td colspan="5" class="px-3 py-8 text-center text-tn-muted">No events match the current filters.</td>
+              <td colspan="6" class="px-3 py-8 text-center text-tn-muted">No events match the current filters.</td>
             </tr>
           </template>
           <template v-else v-for="ev in events" :key="rowKey(ev)">
@@ -277,6 +396,13 @@ function onContextMenuSelect(idx) {
                 </span>
               </td>
               <td class="px-3 py-1.5 text-tn-fg font-mono text-xs truncate max-w-0 w-full">{{ ev.summary }}</td>
+              <td class="px-3 py-1.5 w-48 max-w-48" @click.stop>
+                <span
+                  v-if="notesStore.getNoteForRow(ev.artifact_type, ev.id)"
+                  class="text-xs text-tn-fg-dim font-mono truncate block max-w-full cursor-default"
+                  :title="notesStore.getNoteForRow(ev.artifact_type, ev.id)?.content"
+                >{{ notesStore.getNoteForRow(ev.artifact_type, ev.id)?.content }}</span>
+              </td>
               <td class="px-3 py-1.5 relative" @click.stop>
                 <div class="flex items-center gap-1 flex-wrap">
                   <TagBadge
@@ -307,7 +433,7 @@ function onContextMenuSelect(idx) {
 
             <!-- Expanded details row -->
             <tr v-if="expanded.has(rowKey(ev))" class="border-b border-tn-border bg-tn-bg/60">
-              <td colspan="5" class="px-4 py-3">
+              <td colspan="6" class="px-4 py-3">
                 <div class="grid grid-cols-2 gap-x-6 gap-y-1">
                   <template v-for="(val, key) in ev.details" :key="key">
                     <template v-if="val !== null && val !== undefined && val !== ''">
@@ -315,6 +441,13 @@ function onContextMenuSelect(idx) {
                       <div class="text-xs text-tn-fg font-mono break-all">{{ val }}</div>
                     </template>
                   </template>
+                </div>
+                <div
+                  v-if="notesStore.getNoteForRow(ev.artifact_type, ev.id)"
+                  class="mt-3 pt-2 border-t border-tn-border flex items-start gap-2"
+                >
+                  <span class="text-xs text-tn-muted font-mono shrink-0">note:</span>
+                  <span class="text-xs text-tn-fg font-mono break-all">{{ notesStore.getNoteForRow(ev.artifact_type, ev.id)?.content }}</span>
                 </div>
                 <div class="mt-3 pt-2 border-t border-tn-border flex items-center gap-2 flex-wrap">
                   <span class="text-xs text-tn-muted font-mono">tags:</span>
@@ -376,6 +509,27 @@ function onContextMenuSelect(idx) {
       :artifact-type="previewTarget.artifactType"
       :path="previewTarget.path"
       @close="previewTarget = null"
+    />
+
+    <!-- Note modal -->
+    <NoteModal
+      v-if="noteModalTarget"
+      :initial-content="noteModalTarget.initialContent"
+      :is-bulk="noteModalTarget.isBulk"
+      :row-count="noteModalTarget.isBulk ? noteModalTarget.rows.length : 1"
+      :notes-differ="noteModalTarget.notesDiffer"
+      @save="onNoteSave"
+      @close="noteModalTarget = null"
+    />
+
+    <!-- Confirm delete modal -->
+    <ConfirmModal
+      v-if="confirmTarget"
+      :message="confirmTarget.message"
+      confirm-label="Delete"
+      :destructive="true"
+      @confirm="onNoteDeleteConfirm"
+      @close="confirmTarget = null"
     />
 
     <!-- Bulk action bar -->
