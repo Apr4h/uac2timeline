@@ -22,6 +22,8 @@ data/
 # Celery
 celerybeat-schedule
 celerybeat.pid
+broker/
+control/
 
 # macOS
 .DS_Store
