@@ -3,8 +3,12 @@ import { ref, computed, onMounted, onUnmounted } from 'vue'
 import { useTagsStore } from '../stores/tags.js'
 
 const props = defineProps({
-  appliedIds: { type: Object, default: () => new Set() },
+  appliedIds:  { type: Object, default: () => new Set() },
   partialIds:  { type: Object, default: () => new Set() },
+  // DOMRect-like: { top, right, bottom, left } in viewport coords.
+  // When provided the picker renders fixed, right-aligned to the anchor,
+  // flipping above it when there is insufficient space below.
+  anchorRect:  { type: Object, default: null },
 })
 const emit = defineEmits(['apply', 'remove', 'create', 'close'])
 
@@ -56,6 +60,25 @@ async function submitCreate() {
   newColor.value = 'gray'
 }
 
+// ── Positioning ───────────────────────────────────────────────────────────────
+// Generous upper bound for the picker height (search bar + tag list + footer).
+const PICKER_MAX_H = 340
+
+const positionStyle = computed(() => {
+  const r = props.anchorRect
+  if (!r) return {}
+  const vw = window.innerWidth
+  const vh = window.innerHeight
+  // Right-align the picker's right edge to the anchor's right edge (opens leftward).
+  const right = Math.max(4, vw - r.right)
+  // Flip above the anchor when there isn't enough room below.
+  const spaceBelow = vh - r.bottom
+  if (spaceBelow >= PICKER_MAX_H || spaceBelow >= r.top) {
+    return { right: `${right}px`, top: `${r.bottom + 4}px` }
+  }
+  return { right: `${right}px`, bottom: `${vh - r.top + 4}px` }
+})
+
 const el = ref(null)
 function onOutsideClick(e) {
   if (el.value && !el.value.contains(e.target)) emit('close')
@@ -65,9 +88,13 @@ onUnmounted(() => document.removeEventListener('mousedown', onOutsideClick))
 </script>
 
 <template>
+  <Teleport to="body">
   <div
     ref="el"
-    class="absolute z-50 mt-1 w-56 bg-tn-surface border border-tn-border rounded shadow-xl text-xs"
+    :class="anchorRect
+      ? 'fixed z-9999 w-56 bg-tn-surface border border-tn-border rounded shadow-xl text-xs'
+      : 'absolute z-50 mt-1 w-56 bg-tn-surface border border-tn-border rounded shadow-xl text-xs'"
+    :style="positionStyle"
     @click.stop
   >
     <!-- Search -->
@@ -144,4 +171,5 @@ onUnmounted(() => document.removeEventListener('mousedown', onOutsideClick))
       </template>
     </div>
   </div>
+  </Teleport>
 </template>

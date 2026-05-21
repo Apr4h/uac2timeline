@@ -129,6 +129,7 @@ async function loadMore() {
 // Artifact table selection + tag picker
 const artifactSelected = ref(new Set())      // Set of row IDs (numbers)
 const artifactPickerRowId = ref(null)        // row id with open picker, or 'bulk'
+const artifactPickerRect = ref(null)         // BoundingClientRect of the trigger button
 const lastClickedArtifactId = ref(null)      // anchor for shift-click range selection
 let _shiftCapture = false                    // bridges mousedown → change; not reactive
 
@@ -183,10 +184,19 @@ const artifactBulkState = computed(() =>
 
 function openArtifactPicker(id, event) {
   event?.stopPropagation()
-  artifactPickerRowId.value = artifactPickerRowId.value === id ? null : id
+  if (artifactPickerRowId.value === id) {
+    artifactPickerRowId.value = null
+    artifactPickerRect.value  = null
+  } else {
+    artifactPickerRowId.value = id
+    artifactPickerRect.value  = event?.currentTarget?.getBoundingClientRect() ?? null
+  }
 }
 
-function closeArtifactPicker() { artifactPickerRowId.value = null }
+function closeArtifactPicker() {
+  artifactPickerRowId.value = null
+  artifactPickerRect.value  = null
+}
 
 function rowPickerApplied(row) {
   return new Set(tagsStore.getRowTags(activeTab.value, row.id).map(t => t.id))
@@ -534,6 +544,7 @@ function sysInfoValue(row) {
                       v-if="artifactPickerRowId === row.id"
                       :applied-ids="rowPickerApplied(row)"
                       :partial-ids="new Set()"
+                      :anchor-rect="artifactPickerRect"
                       @apply="onArtifactPickerApply"
                       @remove="onArtifactPickerRemove"
                       @close="closeArtifactPicker"
@@ -571,10 +582,10 @@ function sysInfoValue(row) {
                 v-if="artifactPickerRowId === 'bulk'"
                 :applied-ids="artifactBulkState.applied"
                 :partial-ids="artifactBulkState.partial"
+                :anchor-rect="artifactPickerRect"
                 @apply="onArtifactPickerApply"
                 @remove="onArtifactPickerRemove"
                 @close="closeArtifactPicker"
-                class="-top-2 -translate-y-full"
               />
             </div>
             <button

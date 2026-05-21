@@ -77,14 +77,24 @@ const selectedEvents = computed(() =>
 function clearSelection() { selected.value = new Set() }
 
 // ── Tag picker ────────────────────────────────────────────────────────────────
-const activePickerKey = ref(null)
+const activePickerKey  = ref(null)
+const activePickerRect = ref(null)
 
 function openPicker(key, event) {
   event?.stopPropagation()
-  activePickerKey.value = activePickerKey.value === key ? null : key
+  if (activePickerKey.value === key) {
+    activePickerKey.value  = null
+    activePickerRect.value = null
+  } else {
+    activePickerKey.value  = key
+    activePickerRect.value = event?.currentTarget?.getBoundingClientRect() ?? null
+  }
 }
 
-function closePicker() { activePickerKey.value = null }
+function closePicker() {
+  activePickerKey.value  = null
+  activePickerRect.value = null
+}
 
 const pickerApplied = computed(() => {
   if (!activePickerKey.value) return new Set()
@@ -239,6 +249,7 @@ function fmtTs(ts) {
                     v-if="activePickerKey === rowKey(ev)"
                     :applied-ids="pickerApplied"
                     :partial-ids="pickerPartial"
+                    :anchor-rect="activePickerRect"
                     @apply="onPickerApply"
                     @remove="onPickerRemove"
                     @create="closePicker"
@@ -277,6 +288,7 @@ function fmtTs(ts) {
                       v-if="activePickerKey === `detail-${rowKey(ev)}`"
                       :applied-ids="new Set(tagsStore.getRowTags(ev.artifact_type, ev.id).map(t => t.id))"
                       :partial-ids="new Set()"
+                      :anchor-rect="activePickerRect"
                       @apply="id => tagsStore.applyTag(id, ev.artifact_type, [ev.id])"
                       @remove="id => tagsStore.removeTag(id, ev.artifact_type, [ev.id])"
                       @close="closePicker"
@@ -317,10 +329,10 @@ function fmtTs(ts) {
             v-if="activePickerKey === 'bulk'"
             :applied-ids="pickerApplied"
             :partial-ids="pickerPartial"
+            :anchor-rect="activePickerRect"
             @apply="onPickerApply"
             @remove="onPickerRemove"
             @close="closePicker"
-            class="-top-2 -translate-y-full"
           />
         </div>
         <button
