@@ -33,6 +33,7 @@ const TABS = [
   { key: 'users',      label: 'Users' },
   { key: 'files',      label: 'Files' },
   { key: 'cron',       label: 'Cron' },
+  { key: 'services',  label: 'Services' },
 ]
 
 // System info tab state
@@ -224,6 +225,7 @@ const COL_DEFAULTS = {
   users:      ['username', 'uid', 'gid', 'gecos', 'home', 'shell'],
   files:      ['path', 'mode', 'size', 'uid', 'gid', 'atime', 'mtime', 'ctime'],
   cron:       ['source_type', 'username', 'minute', 'hour', 'day_of_month', 'month', 'day_of_week', 'command', 'source_file_modified', 'source_file'],
+  services:   ['unit_name', 'unit_type', 'description', 'exec_start', 'run_user', 'service_type', 'restart', 'source_dir_type', 'source_file'],
 }
 
 const colPrefs = useColumnPrefs(COL_DEFAULTS)

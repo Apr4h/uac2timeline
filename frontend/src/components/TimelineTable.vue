@@ -151,6 +151,8 @@ const TYPE_COLORS = {
   cmdhistory: 'bg-yellow-900/60 text-yellow-300 border-yellow-700',
   netconns:   'bg-cyan-900/60 text-cyan-300 border-cyan-700',
   files:      'bg-orange-900/60 text-orange-300 border-orange-700',
+  services:   'bg-blue-900/60 text-blue-300 border-blue-700',
+  cron:       'bg-pink-900/60 text-pink-300 border-pink-700',
 }
 
 function typeClass(t) {

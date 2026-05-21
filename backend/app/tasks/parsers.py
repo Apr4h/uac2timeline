@@ -236,6 +236,17 @@ def parse_cron_task(self, artifact_job_id: int, collection_id: int, processing_j
     )
 
 
+@celery.task(bind=True, name="tasks.parse_systemd")
+def parse_systemd_task(self, artifact_job_id: int, collection_id: int, processing_job_id: int, collection_path: str):
+    from uac_parser.artifacts.systemd import parse_systemd_services
+    return _run_artifact_task(
+        artifact_job_id, collection_id, processing_job_id,
+        parse_fn=parse_systemd_services,
+        set_id_fn=lambda obj, cid: setattr(obj, "collection_id", cid),
+        uac_collection_path=collection_path,
+    )
+
+
 @celery.task(bind=True, name="tasks.parse_bodyfile")
 def parse_bodyfile_task(self, artifact_job_id: int, collection_id: int, processing_job_id: int, collection_path: str):
     from uac_parser.artifacts.files import parse_bodyfile
@@ -256,6 +267,7 @@ ARTIFACT_TASKS = {
     "cmdhistory": parse_cmdhistory_task,
     "users": parse_users_task,
     "cron": parse_cron_task,
+    "systemd": parse_systemd_task,
     "bodyfile": parse_bodyfile_task,
 }
 
@@ -332,6 +344,9 @@ def process_collection(self, job_id: int, collection_path: str, collection_id: i
     ))
     subtasks.append(parse_cron_task.s(
         artifact_job_ids["cron"], collection_id, job_id, collection_path
+    ))
+    subtasks.append(parse_systemd_task.s(
+        artifact_job_ids["systemd"], collection_id, job_id, collection_path
     ))
     subtasks.append(parse_bodyfile_task.s(
         artifact_job_ids["bodyfile"], collection_id, job_id, collection_path

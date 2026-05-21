@@ -23,17 +23,20 @@ from backend.app.schemas import (
     TimelineEvent, TimelineResponse,
     PaginatedProcesses, PaginatedNetconns, PaginatedAuth,
     PaginatedCmdHistory, PaginatedUsers, PaginatedFiles, PaginatedCronJobs,
+    PaginatedSystemdServices,
     ProcessOut, NetworkConnectionOut, AuthenticationOut,
     CommandHistoryOut, UserOut, FileOut, SystemInfoOut, CronJobOut,
+    SystemdServiceOut,
 )
 from uac_parser.models import (
     UACCollection, Process, NetworkConnection,
     Authentication, CommandHistory, User, File, SystemInfo, CronJob,
+    SystemdService,
 )
 
 router = APIRouter()
 
-ALL_TYPES = {"processes", "netconns", "auth", "cmdhistory", "files"}
+ALL_TYPES = {"processes", "netconns", "auth", "cmdhistory", "files", "cron", "services"}
 
 
 def _require_collection(collection_id: int, db: Session) -> UACCollection:
@@ -195,6 +198,53 @@ def get_timeline(
                 id=c.id,
                 summary=summary,
                 details=_obj_to_dict(c),
+            ))
+
+    # Cron jobs — use source_file_modified as the timeline timestamp
+    if "cron" in requested_types:
+        q = db.query(CronJob).filter_by(collection_id=collection_id)
+        if start:
+            q = q.filter(CronJob.source_file_modified >= start)
+        if end:
+            q = q.filter(CronJob.source_file_modified <= end)
+        q = _filter_by_tags(q, CronJob, "cron", db, collection_id, tag_ids)
+        for cj in q.all():
+            if cj.source_file_modified is None and (start or end):
+                continue
+            user = f"{cj.username}: " if cj.username else ""
+            summary = f"[{cj.source_type or 'cron'}] {user}{cj.command or ''}"
+            if not _apply_filter(summary, filter, regex):
+                continue
+            events.append(TimelineEvent(
+                timestamp=cj.source_file_modified,
+                artifact_type="cron",
+                id=cj.id,
+                summary=summary,
+                details=_obj_to_dict(cj),
+            ))
+
+    # Systemd units — use source_file_modified as the timeline timestamp
+    if "services" in requested_types:
+        q = db.query(SystemdService).filter_by(collection_id=collection_id)
+        if start:
+            q = q.filter(SystemdService.source_file_modified >= start)
+        if end:
+            q = q.filter(SystemdService.source_file_modified <= end)
+        q = _filter_by_tags(q, SystemdService, "services", db, collection_id, tag_ids)
+        for svc in q.all():
+            if svc.source_file_modified is None and (start or end):
+                continue
+            label = f"{svc.unit_name or ''}.{svc.unit_type or ''}".strip('.')
+            detail = svc.description or svc.exec_start or ''
+            summary = f"[{svc.source_dir_type or 'services'}] {label}: {detail}".rstrip(': ')
+            if not _apply_filter(summary, filter, regex):
+                continue
+            events.append(TimelineEvent(
+                timestamp=svc.source_file_modified,
+                artifact_type="services",
+                id=svc.id,
+                summary=summary,
+                details=_obj_to_dict(svc),
             ))
 
     # Filesystem events — each file contributes up to 4 events (one per timestamp type)
@@ -376,6 +426,29 @@ def get_cron(
         )]
     total = len(rows)
     return PaginatedCronJobs(total=total, offset=offset, limit=limit, items=rows[offset: offset + limit])
+
+
+@router.get("/collections/{collection_id}/services", response_model=PaginatedSystemdServices)
+def get_systemd(
+    collection_id: int,
+    filter: Optional[str] = Query(default=None, alias="filter"),
+    regex: Optional[str] = Query(default=None),
+    tag_ids: Optional[str] = Query(default=None),
+    limit: int = Query(default=500, ge=1, le=5000),
+    offset: int = Query(default=0, ge=0),
+    db: Session = Depends(get_db),
+):
+    _require_collection(collection_id, db)
+    q = db.query(SystemdService).filter_by(collection_id=collection_id)
+    q = _filter_by_tags(q, SystemdService, "services", db, collection_id, tag_ids)
+    rows = q.all()
+    if filter or regex:
+        rows = [r for r in rows if _apply_filter(
+            f"{r.unit_name or ''} {r.description or ''} {r.exec_start or ''} {r.run_user or ''} {r.source_path or ''}",
+            filter, regex,
+        )]
+    total = len(rows)
+    return PaginatedSystemdServices(total=total, offset=offset, limit=limit, items=rows[offset: offset + limit])
 
 
 @router.get("/collections/{collection_id}/system-info", response_model=SystemInfoOut)

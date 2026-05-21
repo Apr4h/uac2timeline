@@ -24,6 +24,7 @@ class UACCollection(Base):
     command_history = relationship("CommandHistory", back_populates="collection")
     users = relationship("User", back_populates="collection")
     cron_jobs = relationship("CronJob", back_populates="collection")
+    systemd_services = relationship("SystemdService", back_populates="collection")
 
     def __repr__(self):
         return f"<UACCollection(hostname='{self.hostname}')>"
@@ -214,6 +215,42 @@ class CronJob(Base):
 
     def __repr__(self):
         return f"<CronJob(source_type='{self.source_type}', command='{self.command}')>"
+
+
+class SystemdService(Base):
+    __tablename__ = 'systemd_services'
+
+    id                   = Column(Integer, primary_key=True)
+    collection_id        = Column(Integer, ForeignKey('uac_collections.id'))
+
+    unit_name            = Column(String)
+    unit_type            = Column(String)   # service | timer | socket | mount | path | target
+    description          = Column(String)
+    after                = Column(String)
+    wants                = Column(String)
+    requires             = Column(String)
+
+    exec_start           = Column(String)
+    exec_start_pre       = Column(String)
+    exec_start_post      = Column(String)
+    exec_stop            = Column(String)
+    run_user             = Column(String)
+    run_group            = Column(String)
+    working_directory    = Column(String)
+    service_type         = Column(String)   # simple | forking | oneshot | notify | dbus | idle
+    restart              = Column(String)
+    environment          = Column(String)
+    wanted_by            = Column(String)
+
+    source_file          = Column(String)   # filename only, e.g. ssh.service
+    source_path          = Column(String)   # full path relative to [root]/
+    source_dir_type      = Column(String)   # system | lib-system | runtime | user | lib-user | user-local
+    source_file_modified = Column(DateTime)
+
+    collection = relationship("UACCollection", back_populates="systemd_services")
+
+    def __repr__(self):
+        return f"<SystemdService(unit_name='{self.unit_name}', unit_type='{self.unit_type}')>"
 
 
 class SystemInfo(Base):

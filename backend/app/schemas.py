@@ -74,6 +74,7 @@ class CollectionOut(BaseModel):
     cmdhistory_count: int = 0
     user_count: int = 0
     cron_count: int = 0
+    systemd_count: int = 0
     # Latest processing job summary
     latest_job: Optional[ProcessingJobOut] = None
 
@@ -257,6 +258,41 @@ class PaginatedCronJobs(BaseModel):
     offset: int
     limit: int
     items: list[CronJobOut]
+
+
+class SystemdServiceOut(BaseModel):
+    id: int
+    unit_name: Optional[str]
+    unit_type: Optional[str]
+    description: Optional[str]
+    after: Optional[str]
+    wants: Optional[str]
+    requires: Optional[str]
+    exec_start: Optional[str]
+    exec_start_pre: Optional[str]
+    exec_start_post: Optional[str]
+    exec_stop: Optional[str]
+    run_user: Optional[str]
+    run_group: Optional[str]
+    working_directory: Optional[str]
+    service_type: Optional[str]
+    restart: Optional[str]
+    environment: Optional[str]
+    wanted_by: Optional[str]
+    source_file: Optional[str]
+    source_path: Optional[str]
+    source_dir_type: Optional[str]
+    source_file_modified: UTCDatetime
+
+    class Config:
+        from_attributes = True
+
+
+class PaginatedSystemdServices(BaseModel):
+    total: int
+    offset: int
+    limit: int
+    items: list[SystemdServiceOut]
 
 
 class TagOut(BaseModel):
