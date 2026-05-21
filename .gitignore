@@ -6,7 +6,6 @@ venv/
 __pycache__/
 *.pyc
 *.pyo
-uac2timeline.egg-info/
 
 # Database
 *.db

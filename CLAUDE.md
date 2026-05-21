@@ -17,7 +17,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 │    FastAPI   (backend/app/)   │  http://localhost:8000
 └──────┬───────────────┬────────┘
        │               │
-   SQLite (uac.db)  Redis broker
+   SQLite (uac.db)  filesystem broker (broker/)
        │               │
        │  ┌────────────▼────────────┐
        └──│   Celery workers        │
@@ -33,26 +33,24 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Development setup
 
-```bash
-# Terminal 1: Redis
-docker run -p 6379:6379 redis:alpine
+The Celery broker uses the local filesystem (`broker/` directory) — no external message broker is required.
 
-# Terminal 2: FastAPI  (run from repo root so both packages are importable)
-pip install -r backend/requirements.txt
+```bash
+# Terminal 1: FastAPI  (run from repo root so both packages are importable)
+pip install -r requirements.txt
 uvicorn backend.app.main:app --reload --port 8000
 
-# Terminal 3: Celery worker
+# Terminal 2: Celery worker
 celery -A backend.app.tasks.celery_app worker --loglevel=info
 
-# Terminal 4: Vite dev server  (proxies /api → :8000)
+# Terminal 3: Vite dev server  (proxies /api → :8000)
 cd frontend && npm install && npm run dev
 ```
 
-## Docker (full stack)
+Or use honcho to run all three at once:
 
 ```bash
-docker-compose up --build
-# UI at http://localhost:5173  |  API at http://localhost:8000
+honcho start
 ```
 
 ## Key file map
@@ -60,13 +58,13 @@ docker-compose up --build
 | Path | Purpose |
 |------|---------|
 | `backend/app/main.py` | FastAPI app factory; mounts routers; serves `frontend/dist` in prod |
-| `backend/app/config.py` | `DB_PATH`, `REDIS_URL`, `UPLOAD_DIR`, `PARSE_THRESHOLD` (env-overridable) |
+| `backend/app/config.py` | `DB_PATH`, `UPLOAD_DIR`, `BROKER_DIR`, `PARSE_THRESHOLD` (env-overridable) |
 | `backend/app/database.py` | `engine()` singleton, `get_db()` FastAPI dependency, table creation |
 | `backend/app/models.py` | `ProcessingJob`, `ArtifactJob`, `ProcessingLog` ORM models |
 | `backend/app/schemas.py` | Pydantic response schemas for all API endpoints |
 | `backend/app/api/collections.py` | Upload, CRUD, and job endpoints |
 | `backend/app/api/timeline.py` | Unified timeline + per-artifact query endpoints |
-| `backend/app/tasks/celery_app.py` | Celery instance (broker = Redis) |
+| `backend/app/tasks/celery_app.py` | Celery instance (filesystem broker) |
 | `backend/app/tasks/parsers.py` | `process_collection` orchestrator + 5 per-artifact Celery tasks |
 | `uac_parser/` | Parsing library — leave imports as `uac_parser.*` |
 | `frontend/src/stores/collections.js` | Pinia: collection list, upload, delete, job polling |
