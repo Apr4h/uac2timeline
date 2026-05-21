@@ -14,7 +14,7 @@ const COLOR_CLASSES = {
   blue:   'bg-blue-900/60 text-blue-300 border-blue-700',
   purple: 'bg-purple-900/60 text-purple-300 border-purple-700',
   pink:   'bg-pink-900/60 text-pink-300 border-pink-700',
-  gray:   'bg-gray-700/60 text-gray-300 border-gray-600',
+  gray:   'bg-tn-hover/60 text-tn-fg-dim border-tn-border-strong',
 }
 </script>
 

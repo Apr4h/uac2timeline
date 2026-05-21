@@ -23,9 +23,9 @@ function toggleRow(key) {
 }
 
 // ── Row selection ─────────────────────────────────────────────────────────────
-const selected = ref(new Set())   // Set of row keys
-const lastClickedKey = ref(null)  // anchor for shift-click range selection
-let _shiftCapture = false         // bridges mousedown → change; not reactive
+const selected = ref(new Set())
+const lastClickedKey = ref(null)
+let _shiftCapture = false
 
 function captureShift(event) { _shiftCapture = event.shiftKey }
 
@@ -77,7 +77,6 @@ const selectedEvents = computed(() =>
 function clearSelection() { selected.value = new Set() }
 
 // ── Tag picker ────────────────────────────────────────────────────────────────
-// activePickerKey: row key for per-row picker; 'bulk' for bulk picker
 const activePickerKey = ref(null)
 
 function openPicker(key, event) {
@@ -87,7 +86,6 @@ function openPicker(key, event) {
 
 function closePicker() { activePickerKey.value = null }
 
-// Applied/partial sets for whichever picker is open
 const pickerApplied = computed(() => {
   if (!activePickerKey.value) return new Set()
   if (activePickerKey.value === 'bulk') {
@@ -95,7 +93,6 @@ const pickerApplied = computed(() => {
       artifactType: ev.artifact_type, artifactId: ev.id,
     }))).applied
   }
-  // per-row
   const ev = (props.events ?? []).find(e => rowKey(e) === activePickerKey.value)
   if (!ev) return new Set()
   return new Set(tagsStore.getRowTags(ev.artifact_type, ev.id).map(t => t.id))
@@ -157,7 +154,7 @@ const TYPE_COLORS = {
 }
 
 function typeClass(t) {
-  return TYPE_COLORS[t] || 'bg-gray-800 text-gray-300 border-gray-600'
+  return TYPE_COLORS[t] || 'bg-tn-raised text-tn-fg-dim border-tn-border'
 }
 
 function fmtTs(ts) {
@@ -170,61 +167,58 @@ function fmtTs(ts) {
   <div class="flex flex-col h-full">
     <div class="overflow-auto flex-1">
       <table class="w-full text-sm border-collapse">
-        <thead class="sticky top-0 bg-gray-900 border-b border-gray-700 z-10">
+        <thead class="sticky top-0 bg-tn-surface border-b border-tn-border z-10">
           <tr>
-            <!-- Select-all checkbox -->
             <th class="w-8 px-2 py-2">
               <input
                 type="checkbox"
                 :checked="allSelected"
                 :indeterminate="selected.size > 0 && !allSelected"
                 @change="toggleSelectAll"
-                class="accent-blue-500 cursor-pointer"
+                class="accent-tn-accent cursor-pointer"
               />
             </th>
-            <th class="text-left px-3 py-2 text-xs text-gray-400 font-medium w-44">Timestamp</th>
-            <th class="text-left px-3 py-2 text-xs text-gray-400 font-medium w-28">Type</th>
-            <th class="text-left px-3 py-2 text-xs text-gray-400 font-medium">Summary</th>
-            <th class="text-left px-3 py-2 text-xs text-gray-400 font-medium w-48">Tags</th>
+            <th class="text-left px-3 py-2 text-xs text-tn-fg-dim font-medium w-44">Timestamp</th>
+            <th class="text-left px-3 py-2 text-xs text-tn-fg-dim font-medium w-28">Type</th>
+            <th class="text-left px-3 py-2 text-xs text-tn-fg-dim font-medium">Summary</th>
+            <th class="text-left px-3 py-2 text-xs text-tn-fg-dim font-medium w-48">Tags</th>
           </tr>
         </thead>
         <tbody>
           <template v-if="loading">
             <tr>
-              <td colspan="5" class="px-3 py-8 text-center text-gray-500">Loading…</td>
+              <td colspan="5" class="px-3 py-8 text-center text-tn-muted">Loading…</td>
             </tr>
           </template>
           <template v-else-if="!events?.length">
             <tr>
-              <td colspan="5" class="px-3 py-8 text-center text-gray-500">No events match the current filters.</td>
+              <td colspan="5" class="px-3 py-8 text-center text-tn-muted">No events match the current filters.</td>
             </tr>
           </template>
           <template v-else v-for="ev in events" :key="rowKey(ev)">
             <tr
               :class="[
-                'border-b border-gray-800 cursor-pointer',
-                selected.has(rowKey(ev)) ? 'bg-blue-950/40 hover:bg-blue-950/60' : 'hover:bg-gray-800/50',
+                'border-b border-tn-border cursor-pointer',
+                selected.has(rowKey(ev)) ? 'bg-tn-selection hover:bg-tn-selection-hover' : 'hover:bg-tn-raised/50',
               ]"
               @click="toggleRow(rowKey(ev))"
             >
-              <!-- Checkbox -->
               <td class="w-8 px-2 py-1.5" @click.stop>
                 <input
                   type="checkbox"
                   :checked="selected.has(rowKey(ev))"
                   @mousedown="captureShift"
                   @change="toggleSelect(ev)"
-                  class="accent-blue-500 cursor-pointer"
+                  class="accent-tn-accent cursor-pointer"
                 />
               </td>
-              <td class="px-3 py-1.5 font-mono text-xs text-gray-400 whitespace-nowrap">{{ fmtTs(ev.timestamp) }}</td>
+              <td class="px-3 py-1.5 font-mono text-xs text-tn-fg-dim whitespace-nowrap">{{ fmtTs(ev.timestamp) }}</td>
               <td class="px-3 py-1.5">
                 <span :class="['text-xs font-mono px-1.5 py-0.5 rounded border', typeClass(ev.artifact_type)]">
                   {{ ev.artifact_type }}
                 </span>
               </td>
-              <td class="px-3 py-1.5 text-gray-200 font-mono text-xs truncate max-w-0 w-full">{{ ev.summary }}</td>
-              <!-- Tags cell -->
+              <td class="px-3 py-1.5 text-tn-fg font-mono text-xs truncate max-w-0 w-full">{{ ev.summary }}</td>
               <td class="px-3 py-1.5 relative" @click.stop>
                 <div class="flex items-center gap-1 flex-wrap">
                   <TagBadge
@@ -236,7 +230,7 @@ function fmtTs(ts) {
                   />
                   <button
                     @click="openPicker(rowKey(ev), $event)"
-                    class="text-gray-500 hover:text-gray-300 text-xs px-1 rounded hover:bg-gray-700"
+                    class="text-tn-muted hover:text-tn-fg-dim text-xs px-1 rounded hover:bg-tn-hover"
                     title="Add tag"
                   >+</button>
                   <TagPicker
@@ -253,19 +247,18 @@ function fmtTs(ts) {
             </tr>
 
             <!-- Expanded details row -->
-            <tr v-if="expanded.has(rowKey(ev))" class="border-b border-gray-800 bg-gray-950/60">
+            <tr v-if="expanded.has(rowKey(ev))" class="border-b border-tn-border bg-tn-bg/60">
               <td colspan="5" class="px-4 py-3">
                 <div class="grid grid-cols-2 gap-x-6 gap-y-1">
                   <template v-for="(val, key) in ev.details" :key="key">
                     <template v-if="val !== null && val !== undefined && val !== ''">
-                      <div class="text-xs text-gray-400 font-mono">{{ key }}</div>
-                      <div class="text-xs text-gray-200 font-mono break-all">{{ val }}</div>
+                      <div class="text-xs text-tn-fg-dim font-mono">{{ key }}</div>
+                      <div class="text-xs text-tn-fg font-mono break-all">{{ val }}</div>
                     </template>
                   </template>
                 </div>
-                <!-- Tags section -->
-                <div class="mt-3 pt-2 border-t border-gray-700 flex items-center gap-2 flex-wrap">
-                  <span class="text-xs text-gray-500 font-mono">tags:</span>
+                <div class="mt-3 pt-2 border-t border-tn-border flex items-center gap-2 flex-wrap">
+                  <span class="text-xs text-tn-muted font-mono">tags:</span>
                   <TagBadge
                     v-for="tag in tagsStore.getRowTags(ev.artifact_type, ev.id)"
                     :key="tag.id"
@@ -276,7 +269,7 @@ function fmtTs(ts) {
                   <div class="relative">
                     <button
                       @click="openPicker(`detail-${rowKey(ev)}`, $event)"
-                      class="text-xs text-blue-400 hover:text-blue-300 border border-blue-700 hover:border-blue-500 rounded px-1.5 py-0.5"
+                      class="text-xs text-tn-accent hover:text-tn-accent-hover border border-tn-accent hover:border-tn-accent-hover rounded px-1.5 py-0.5"
                     >+ Tag</button>
                     <TagPicker
                       v-if="activePickerKey === `detail-${rowKey(ev)}`"
@@ -295,13 +288,12 @@ function fmtTs(ts) {
       </table>
     </div>
 
-    <!-- Footer: count + load more -->
-    <div class="border-t border-gray-700 px-4 py-2 flex items-center justify-between text-xs text-gray-400">
+    <div class="border-t border-tn-border px-4 py-2 flex items-center justify-between text-xs text-tn-fg-dim">
       <span>Showing {{ events?.length ?? 0 }} of {{ total ?? 0 }} events</span>
       <button
         v-if="events?.length < total"
         @click="emit('loadMore')"
-        class="px-3 py-1 rounded bg-gray-700 hover:bg-gray-600 text-gray-300"
+        class="px-3 py-1 rounded bg-tn-hover hover:bg-tn-border-strong text-tn-fg-dim"
       >
         Load more
       </button>
@@ -311,13 +303,13 @@ function fmtTs(ts) {
     <Transition name="slide-up">
       <div
         v-if="selected.size > 0"
-        class="border-t border-blue-700 bg-blue-950/80 px-4 py-2 flex items-center gap-3 text-xs"
+        class="border-t border-tn-accent bg-tn-selection-bar px-4 py-2 flex items-center gap-3 text-xs"
       >
-        <span class="text-blue-300 font-mono">{{ selected.size }} row{{ selected.size === 1 ? '' : 's' }} selected</span>
+        <span class="text-tn-accent font-mono">{{ selected.size }} row{{ selected.size === 1 ? '' : 's' }} selected</span>
         <div class="relative">
           <button
             @click="openPicker('bulk', $event)"
-            class="px-3 py-1 rounded bg-blue-700 hover:bg-blue-600 text-white"
+            class="px-3 py-1 rounded bg-tn-accent hover:bg-tn-accent-hover text-tn-bg"
           >Tag selected</button>
           <TagPicker
             v-if="activePickerKey === 'bulk'"
@@ -331,7 +323,7 @@ function fmtTs(ts) {
         </div>
         <button
           @click="clearSelection"
-          class="px-3 py-1 rounded bg-gray-700 hover:bg-gray-600 text-gray-300"
+          class="px-3 py-1 rounded bg-tn-hover hover:bg-tn-border-strong text-tn-fg-dim"
         >Clear</button>
       </div>
     </Transition>

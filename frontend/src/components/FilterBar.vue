@@ -25,7 +25,7 @@ const TAG_CHIP_CLASSES = {
   blue:   'bg-blue-900/60 text-blue-300 border-blue-700',
   purple: 'bg-purple-900/60 text-purple-300 border-purple-700',
   pink:   'bg-pink-900/60 text-pink-300 border-pink-700',
-  gray:   'bg-gray-700/60 text-gray-300 border-gray-600',
+  gray:   'bg-tn-hover/60 text-tn-fg-dim border-tn-border-strong',
 }
 
 const TAG_CHIP_ACTIVE = {
@@ -37,10 +37,8 @@ const TAG_CHIP_ACTIVE = {
   blue:   'ring-1 ring-blue-400',
   purple: 'ring-1 ring-purple-400',
   pink:   'ring-1 ring-pink-400',
-  gray:   'ring-1 ring-gray-400',
+  gray:   'ring-1 ring-tn-border-strong',
 }
-
-// ── ISO timestamp validation ──────────────────────────────────────────────────
 
 function isValidIso(str) {
   if (!str?.trim()) return true
@@ -53,11 +51,9 @@ const canApply   = computed(() => startValid.value && endValid.value)
 
 function tsClass(valid) {
   return valid
-    ? 'border-gray-600 focus:border-blue-500'
+    ? 'border-tn-border-strong focus:border-tn-accent'
     : 'border-red-500 focus:border-red-400'
 }
-
-// ── Artifact type & tag toggles ───────────────────────────────────────────────
 
 function toggleType(t) {
   const idx = store.filters.types.indexOf(t)
@@ -71,8 +67,6 @@ function toggleTag(id) {
   else store.filters.tagIds.splice(idx, 1)
 }
 
-// ── Apply / reset ─────────────────────────────────────────────────────────────
-
 function apply() {
   if (!canApply.value) return
   store.filters.offset = 0
@@ -83,8 +77,6 @@ function reset() {
   store.resetFilters()
   emit('apply')
 }
-
-// ── Saved filters ─────────────────────────────────────────────────────────────
 
 const { saved, load: loadSaved, save: doSave, remove: doRemove } = useSavedFilters()
 
@@ -132,12 +124,11 @@ function loadEntry(entry) {
 
 <template>
   <div>
-    <!-- Header row — always visible -->
     <div class="flex items-center justify-between mb-3">
-      <span class="text-xs font-semibold text-gray-400 uppercase tracking-wider">Filters</span>
+      <span class="text-xs font-semibold text-tn-fg-dim uppercase tracking-wider">Filters</span>
       <button
         @click="isCollapsed = !isCollapsed"
-        class="text-gray-400 hover:text-gray-200 transition-colors p-0.5 rounded"
+        class="text-tn-fg-dim hover:text-tn-fg transition-colors p-0.5 rounded"
         :title="isCollapsed ? 'Expand filters' : 'Collapse filters'"
       >
         <svg
@@ -154,76 +145,71 @@ function loadEntry(entry) {
       </button>
     </div>
 
-    <!-- Collapsible filter fields -->
     <Transition name="slide-fade">
       <div v-show="!isCollapsed" class="flex flex-col gap-3">
 
-        <!-- Keyword filter -->
         <div>
-          <label class="text-xs text-gray-400 block mb-1">Keyword</label>
+          <label class="text-xs text-tn-fg-dim block mb-1">Keyword</label>
           <input
             v-model="store.filters.filterStr"
             @keyup.enter="apply"
             placeholder="Search summaries…"
-            class="w-full bg-gray-800 border border-gray-600 rounded px-3 py-1.5 text-sm text-gray-100 placeholder-gray-500 focus:outline-none focus:border-blue-500"
+            class="w-full bg-tn-raised border border-tn-border-strong rounded px-3 py-1.5 text-sm text-tn-fg placeholder-tn-muted focus:outline-none focus:border-tn-accent"
           />
         </div>
 
-        <!-- Regex filter -->
         <div>
-          <label class="text-xs text-gray-400 block mb-1">Regex</label>
+          <label class="text-xs text-tn-fg-dim block mb-1">Regex</label>
           <input
             v-model="store.filters.regex"
             @keyup.enter="apply"
             placeholder="/pattern/i"
-            class="w-full bg-gray-800 border border-gray-600 rounded px-3 py-1.5 text-sm font-mono text-gray-100 placeholder-gray-500 focus:outline-none focus:border-blue-500"
+            class="w-full bg-tn-raised border border-tn-border-strong rounded px-3 py-1.5 text-sm font-mono text-tn-fg placeholder-tn-muted focus:outline-none focus:border-tn-accent"
           />
         </div>
 
-        <!-- Date range + type toggles (timeline tab only) -->
         <template v-if="activeTab === 'timeline'">
           <div>
-            <label class="text-xs text-gray-400 block mb-1">Start time</label>
+            <label class="text-xs text-tn-fg-dim block mb-1">Start time</label>
             <input
               v-model="store.filters.start"
               @keyup.enter="apply"
               placeholder="2024-01-15T09:00:00"
-              :class="['w-full bg-gray-800 border rounded px-3 py-1.5 text-sm font-mono text-gray-100 placeholder-gray-600 focus:outline-none', tsClass(startValid)]"
+              :class="['w-full bg-tn-raised border rounded px-3 py-1.5 text-sm font-mono text-tn-fg placeholder-tn-muted focus:outline-none', tsClass(startValid)]"
             />
             <p v-if="!startValid" class="text-xs text-red-400 mt-1">Invalid timestamp</p>
           </div>
 
           <div>
-            <label class="text-xs text-gray-400 block mb-1">End time</label>
+            <label class="text-xs text-tn-fg-dim block mb-1">End time</label>
             <input
               v-model="store.filters.end"
               @keyup.enter="apply"
               placeholder="2024-01-15T18:00:00"
-              :class="['w-full bg-gray-800 border rounded px-3 py-1.5 text-sm font-mono text-gray-100 placeholder-gray-600 focus:outline-none', tsClass(endValid)]"
+              :class="['w-full bg-tn-raised border rounded px-3 py-1.5 text-sm font-mono text-tn-fg placeholder-tn-muted focus:outline-none', tsClass(endValid)]"
             />
             <p v-if="!endValid" class="text-xs text-red-400 mt-1">Invalid timestamp</p>
-            <p v-if="collectionTimezone" class="text-xs text-gray-600 font-mono mt-1">
+            <p v-if="collectionTimezone" class="text-xs text-tn-muted font-mono mt-1">
               Collection TZ: {{ collectionTimezone }}
             </p>
           </div>
 
           <div>
-            <label class="text-xs text-gray-400 block mb-2">Artifact types</label>
+            <label class="text-xs text-tn-fg-dim block mb-2">Artifact types</label>
             <div class="flex flex-wrap gap-1.5">
               <button v-for="t in ALL_TYPES" :key="t"
                 @click="toggleType(t)"
                 :class="['px-2.5 py-1 rounded text-xs font-mono transition-colors',
                   store.filters.types.includes(t)
-                    ? 'bg-blue-700 text-white'
-                    : 'bg-gray-800 text-gray-400 hover:bg-gray-700']"
+                    ? 'bg-tn-accent text-tn-bg'
+                    : 'bg-tn-raised text-tn-fg-dim hover:bg-tn-hover']"
               >{{ t }}</button>
             </div>
           </div>
         </template>
 
-        <!-- Tags filter -->
         <div v-if="tagsStore.tags.length > 0">
-          <label class="text-xs text-gray-400 block mb-2">Tags</label>
+          <label class="text-xs text-tn-fg-dim block mb-2">Tags</label>
           <div class="flex flex-wrap gap-1.5">
             <button
               v-for="tag in tagsStore.tags"
@@ -240,22 +226,19 @@ function loadEntry(entry) {
           </div>
         </div>
 
-        <!-- Apply / Reset -->
         <div class="flex gap-2 pt-1">
           <button
             @click="apply"
             :disabled="!canApply"
-            class="flex-1 px-3 py-1.5 rounded bg-blue-700 hover:bg-blue-600 disabled:opacity-40 disabled:cursor-not-allowed text-sm transition-colors"
+            class="flex-1 px-3 py-1.5 rounded bg-tn-accent hover:bg-tn-accent-hover disabled:opacity-40 disabled:cursor-not-allowed text-tn-bg text-sm transition-colors"
           >Apply</button>
-          <button @click="reset" class="px-3 py-1.5 rounded bg-gray-700 hover:bg-gray-600 text-sm">Reset</button>
+          <button @click="reset" class="px-3 py-1.5 rounded bg-tn-hover hover:bg-tn-border-strong text-tn-fg-dim text-sm">Reset</button>
         </div>
 
-        <!-- Saved filters -->
-        <div v-if="collectionId" class="pt-2 border-t border-gray-700/60">
+        <div v-if="collectionId" class="pt-2 border-t border-tn-border/60">
 
-          <!-- Save form -->
           <template v-if="showSaveForm">
-            <label class="text-xs text-gray-400 block mb-1">Filter name</label>
+            <label class="text-xs text-tn-fg-dim block mb-1">Filter name</label>
             <div class="flex gap-1">
               <input
                 v-model="savingName"
@@ -263,21 +246,20 @@ function loadEntry(entry) {
                 @keyup.enter="confirmSave"
                 @keyup.esc="cancelSave"
                 autofocus
-                class="flex-1 min-w-0 bg-gray-800 border border-gray-600 rounded px-2 py-1 text-xs text-gray-100 placeholder-gray-500 focus:outline-none focus:border-blue-500"
+                class="flex-1 min-w-0 bg-tn-raised border border-tn-border-strong rounded px-2 py-1 text-xs text-tn-fg placeholder-tn-muted focus:outline-none focus:border-tn-accent"
               />
               <button
                 @click="confirmSave"
                 :disabled="!savingName.trim()"
-                class="shrink-0 px-2 py-1 rounded bg-blue-700 hover:bg-blue-600 disabled:opacity-40 text-xs text-white"
+                class="shrink-0 px-2 py-1 rounded bg-tn-accent hover:bg-tn-accent-hover disabled:opacity-40 text-xs text-tn-bg"
               >Save</button>
               <button
                 @click="cancelSave"
-                class="shrink-0 px-2 py-1 rounded bg-gray-700 hover:bg-gray-600 text-xs text-gray-400"
+                class="shrink-0 px-2 py-1 rounded bg-tn-hover hover:bg-tn-border-strong text-xs text-tn-fg-dim"
               >✕</button>
             </div>
           </template>
 
-          <!-- Saved list -->
           <ul
             v-if="saved.length"
             class="space-y-0.5 max-h-44 overflow-y-auto"
@@ -286,26 +268,25 @@ function loadEntry(entry) {
             <li
               v-for="entry in saved"
               :key="entry.id"
-              class="flex items-center gap-1 group rounded px-1 hover:bg-gray-800/60"
+              class="flex items-center gap-1 group rounded px-1 hover:bg-tn-raised/60"
             >
               <button
                 @click="loadEntry(entry)"
-                class="flex-1 min-w-0 text-left text-xs text-gray-400 hover:text-blue-300 truncate py-1 transition-colors"
+                class="flex-1 min-w-0 text-left text-xs text-tn-fg-dim hover:text-tn-accent truncate py-1 transition-colors"
                 :title="`${entry.name} — saved ${new Date(entry.savedAt).toLocaleDateString()}`"
               >{{ entry.name }}</button>
               <button
                 @click="doRemove(collectionId, entry.id)"
-                class="shrink-0 text-gray-600 hover:text-red-400 opacity-0 group-hover:opacity-100 transition-opacity px-1 py-1 text-xs leading-none"
+                class="shrink-0 text-tn-muted hover:text-red-400 opacity-0 group-hover:opacity-100 transition-opacity px-1 py-1 text-xs leading-none"
                 title="Delete saved filter"
               >✕</button>
             </li>
           </ul>
 
-          <!-- Save current link -->
           <button
             v-if="!showSaveForm"
             @click="openSaveForm"
-            class="mt-1 w-full text-left text-xs text-gray-500 hover:text-gray-300 py-0.5 transition-colors"
+            class="mt-1 w-full text-left text-xs text-tn-muted hover:text-tn-fg-dim py-0.5 transition-colors"
           >+ Save current filters</button>
         </div>
 

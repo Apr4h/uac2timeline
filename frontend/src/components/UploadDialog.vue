@@ -45,16 +45,16 @@ async function submit() {
 
 <template>
   <div class="fixed inset-0 bg-black/60 flex items-center justify-center z-50" @click.self="emit('close')">
-    <div class="bg-gray-900 border border-gray-700 rounded-xl shadow-2xl w-full max-w-md p-6">
+    <div class="bg-tn-surface border border-tn-border rounded-xl shadow-2xl w-full max-w-md p-6">
       <div class="flex items-center justify-between mb-4">
-        <h2 class="text-lg font-semibold text-gray-100">Upload UAC Collection</h2>
-        <button @click="emit('close')" class="text-gray-400 hover:text-gray-200">✕</button>
+        <h2 class="text-lg font-semibold text-tn-fg">Upload UAC Collection</h2>
+        <button @click="emit('close')" class="text-tn-fg-dim hover:text-tn-fg">✕</button>
       </div>
 
       <!-- Drop zone -->
       <div
         class="border-2 border-dashed rounded-lg p-8 text-center cursor-pointer transition-colors"
-        :class="dragging ? 'border-blue-400 bg-blue-950/30' : 'border-gray-600 hover:border-gray-400'"
+        :class="dragging ? 'border-tn-accent bg-tn-selection' : 'border-tn-border-strong hover:border-tn-fg-dim'"
         @dragover.prevent="dragging = true"
         @dragleave="dragging = false"
         @drop.prevent="onDrop"
@@ -62,19 +62,19 @@ async function submit() {
       >
         <input ref="fileInput" type="file" accept=".zip,.tar.gz,.tgz,.tar.bz2,.tar" class="hidden" @change="onPick" />
         <div v-if="file" class="text-green-400 font-mono text-sm truncate">{{ file.name }}</div>
-        <div v-else class="text-gray-400 text-sm">
+        <div v-else class="text-tn-fg-dim text-sm">
           <div class="text-2xl mb-2">📁</div>
           <div>Drop a <span class="font-mono">.zip</span> or <span class="font-mono">.tar.gz</span> archive here</div>
-          <div class="text-gray-500 text-xs mt-1">or click to browse</div>
+          <div class="text-tn-muted text-xs mt-1">or click to browse</div>
         </div>
       </div>
 
       <!-- Threshold -->
       <div class="mt-4">
-        <label class="text-xs text-gray-400 block mb-1">
-          Parse threshold: <span class="text-gray-200 font-mono">{{ threshold }}%</span>
+        <label class="text-xs text-tn-fg-dim block mb-1">
+          Parse threshold: <span class="text-tn-fg font-mono">{{ threshold }}%</span>
         </label>
-        <input type="range" v-model.number="threshold" min="1" max="100" class="w-full accent-blue-500" />
+        <input type="range" v-model.number="threshold" min="1" max="100" class="w-full accent-tn-accent" />
       </div>
 
       <!-- Error -->
@@ -84,20 +84,20 @@ async function submit() {
 
       <!-- Progress -->
       <div v-if="uploading" class="mt-3">
-        <div class="h-1.5 bg-gray-700 rounded-full overflow-hidden">
-          <div class="h-full bg-blue-500 transition-all" :style="`width: ${progress}%`" />
+        <div class="h-1.5 bg-tn-raised rounded-full overflow-hidden">
+          <div class="h-full bg-tn-accent transition-all" :style="`width: ${progress}%`" />
         </div>
-        <div class="text-xs text-gray-400 mt-1">Uploading… {{ progress }}%</div>
+        <div class="text-xs text-tn-fg-dim mt-1">Uploading… {{ progress }}%</div>
       </div>
 
       <div class="flex gap-3 mt-5">
-        <button @click="emit('close')" class="flex-1 px-4 py-2 rounded bg-gray-700 hover:bg-gray-600 text-sm">
+        <button @click="emit('close')" class="flex-1 px-4 py-2 rounded bg-tn-hover hover:bg-tn-border-strong text-tn-fg-dim text-sm">
           Cancel
         </button>
         <button
           @click="submit"
           :disabled="!file || uploading"
-          class="flex-1 px-4 py-2 rounded bg-blue-600 hover:bg-blue-500 disabled:opacity-40 disabled:cursor-not-allowed text-sm font-medium"
+          class="flex-1 px-4 py-2 rounded bg-tn-accent hover:bg-tn-accent-hover disabled:opacity-40 disabled:cursor-not-allowed text-tn-bg text-sm font-medium"
         >
           {{ uploading ? 'Uploading…' : 'Upload & Process' }}
         </button>

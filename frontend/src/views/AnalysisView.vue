@@ -1,10 +1,11 @@
 <script setup>
-import { ref, computed, watch, onMounted } from 'vue'
+import { ref, computed, watch, onMounted, onUnmounted } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import axios from 'axios'
 import { useTimelineStore } from '../stores/timeline.js'
 import { useCollectionsStore } from '../stores/collections.js'
 import { useTagsStore } from '../stores/tags.js'
+import { useColumnPrefs } from '../composables/useColumnPrefs.js'
 import TimelineTable from '../components/TimelineTable.vue'
 import FilterBar from '../components/FilterBar.vue'
 import ProcessingStatus from '../components/ProcessingStatus.vue'
@@ -215,7 +216,7 @@ onMounted(async () => {
 })
 
 // Generic artifact columns
-const COLUMNS = {
+const COL_DEFAULTS = {
   processes:  ['pid', 'ppid', 'uid', 'user', 'started', 'command', 'arguments'],
   netconns:   ['proto', 'local_addr', 'local_port', 'remote_addr', 'remote_port', 'state', 'pid'],
   auth:       ['time', 'username', 'result', 'method', 'source', 'destination'],
@@ -224,6 +225,64 @@ const COLUMNS = {
   files:      ['path', 'mode', 'size', 'uid', 'gid', 'atime', 'mtime', 'ctime'],
   cron:       ['source_type', 'username', 'minute', 'hour', 'day_of_month', 'month', 'day_of_week', 'command', 'source_file_modified', 'source_file'],
 }
+
+const colPrefs = useColumnPrefs(COL_DEFAULTS)
+const activeCols = computed(() => colPrefs.getOrder(activeTab.value))
+const colWidths  = computed(() => colPrefs.getWidths(activeTab.value))
+
+// Column drag-to-reorder state
+const dragFromIdx = ref(null)
+const dragOverIdx = ref(null)
+
+function onColDragStart(idx, event) {
+  dragFromIdx.value = idx
+  event.dataTransfer.effectAllowed = 'move'
+}
+
+function onColDrop(toIdx) {
+  if (dragFromIdx.value !== null) {
+    colPrefs.reorder(activeTab.value, dragFromIdx.value, toIdx)
+  }
+  dragFromIdx.value = null
+  dragOverIdx.value = null
+}
+
+function onColDragEnd() {
+  dragFromIdx.value = null
+  dragOverIdx.value = null
+}
+
+function setDragOver(idx) { dragOverIdx.value = idx }
+function clearDragOver()  { dragOverIdx.value = null }
+
+// Column resize state
+let _resizeCol   = null
+let _resizeStartX = 0
+let _resizeStartW = 0
+
+function startResize(col, event) {
+  _resizeCol    = col
+  _resizeStartX = event.clientX
+  _resizeStartW = event.currentTarget.parentElement.getBoundingClientRect().width
+  document.addEventListener('mousemove', onResizeMove)
+  document.addEventListener('mouseup',   onResizeUp)
+}
+
+function onResizeMove(event) {
+  if (!_resizeCol) return
+  colPrefs.setWidth(activeTab.value, _resizeCol, _resizeStartW + (event.clientX - _resizeStartX))
+}
+
+function onResizeUp() {
+  _resizeCol = null
+  document.removeEventListener('mousemove', onResizeMove)
+  document.removeEventListener('mouseup',   onResizeUp)
+}
+
+onUnmounted(() => {
+  document.removeEventListener('mousemove', onResizeMove)
+  document.removeEventListener('mouseup',   onResizeUp)
+})
 
 function fmtCell(val) {
   if (val === null || val === undefined) return '—'
@@ -272,14 +331,14 @@ function sysInfoValue(row) {
   <div class="flex h-[calc(100vh-52px)]">
     <!-- Left sidebar -->
     <aside
-      class="shrink-0 border-r border-gray-700 flex flex-col bg-gray-900/50 overflow-hidden transition-[width] duration-200"
+      class="shrink-0 border-r border-tn-border flex flex-col bg-tn-surface/50 overflow-hidden transition-[width] duration-200"
       :class="sidebarCollapsed ? 'w-10' : 'w-64'"
     >
       <!-- Header — toggle button is the leftmost element so it stays visible when collapsed -->
-      <div class="flex items-start gap-2 p-2 border-b border-gray-700 shrink-0">
+      <div class="flex items-start gap-2 p-2 border-b border-tn-border shrink-0">
         <button
           @click="sidebarCollapsed = !sidebarCollapsed"
-          class="shrink-0 text-gray-400 hover:text-gray-200 transition-colors p-1 rounded mt-0.5"
+          class="shrink-0 text-tn-fg-dim hover:text-tn-fg transition-colors p-1 rounded mt-0.5"
           :title="sidebarCollapsed ? 'Expand sidebar' : 'Collapse sidebar'"
         >
           <svg
@@ -297,13 +356,13 @@ function sysInfoValue(row) {
 
         <!-- Collection info — clipped by overflow-hidden when collapsed -->
         <div class="flex-1 min-w-0 pt-0.5">
-          <button @click="router.push('/collections')" class="text-xs text-gray-400 hover:text-gray-200 mb-3 flex items-center gap-1">
+          <button @click="router.push('/collections')" class="text-xs text-tn-fg-dim hover:text-tn-fg mb-3 flex items-center gap-1">
             ← Collections
           </button>
           <div v-if="collection">
-            <div class="font-mono font-medium text-gray-100 truncate">{{ collection.hostname }}</div>
-            <div class="text-xs text-gray-500 mt-0.5">{{ collection.os }}</div>
-            <div class="text-xs text-gray-500">TZ: {{ collection.timezone_setting }}</div>
+            <div class="font-mono font-medium text-tn-fg truncate">{{ collection.hostname }}</div>
+            <div class="text-xs text-tn-muted mt-0.5">{{ collection.os }}</div>
+            <div class="text-xs text-tn-muted">TZ: {{ collection.timezone_setting }}</div>
           </div>
         </div>
       </div>
@@ -334,14 +393,14 @@ function sysInfoValue(row) {
     <!-- Main content -->
     <div class="flex-1 flex flex-col min-w-0">
       <!-- Tabs -->
-      <div class="border-b border-gray-700 bg-gray-900/50 flex">
+      <div class="border-b border-tn-border bg-tn-surface/50 flex">
         <button
           v-for="tab in TABS" :key="tab.key"
           @click="activeTab = tab.key"
           :class="['px-4 py-2.5 text-sm border-b-2 transition-colors',
             activeTab === tab.key
-              ? 'border-blue-500 text-blue-400'
-              : 'border-transparent text-gray-400 hover:text-gray-200']"
+              ? 'border-tn-accent text-tn-accent'
+              : 'border-transparent text-tn-fg-dim hover:text-tn-fg']"
         >
           {{ tab.label }}
         </button>
@@ -359,15 +418,15 @@ function sysInfoValue(row) {
 
       <!-- System info tab -->
       <div v-else-if="activeTab === 'system'" class="flex-1 min-h-0 overflow-auto p-6">
-        <div v-if="tabLoading" class="text-gray-500 text-sm">Loading…</div>
-        <div v-else-if="!systemInfo" class="text-gray-500 text-sm">System info not yet available.</div>
+        <div v-if="tabLoading" class="text-tn-muted text-sm">Loading…</div>
+        <div v-else-if="!systemInfo" class="text-tn-muted text-sm">System info not yet available.</div>
         <div v-else class="max-w-2xl">
           <table class="w-full text-xs border-collapse">
             <tbody>
               <tr v-for="row in SYSTEM_INFO_ROWS" :key="row.field"
-                  class="border-b border-gray-800">
-                <td class="py-2 pr-6 font-mono text-gray-400 whitespace-nowrap w-36">{{ row.label }}</td>
-                <td class="py-2 font-mono text-gray-200 break-all">{{ sysInfoValue(row) }}</td>
+                  class="border-b border-tn-border">
+                <td class="py-2 pr-6 font-mono text-tn-fg-dim whitespace-nowrap w-36">{{ row.label }}</td>
+                <td class="py-2 font-mono text-tn-fg break-all">{{ sysInfoValue(row) }}</td>
               </tr>
             </tbody>
           </table>
@@ -377,56 +436,80 @@ function sysInfoValue(row) {
       <!-- Per-artifact tabs -->
       <div v-else class="flex-1 min-h-0 flex flex-col">
         <div class="flex-1 overflow-auto">
-          <div v-if="tabLoading" class="p-8 text-center text-gray-500">Loading…</div>
-          <div v-else-if="!tabData.items?.length" class="p-8 text-center text-gray-500">No records.</div>
-          <table v-else class="w-full text-xs border-collapse">
-            <thead class="sticky top-0 bg-gray-900 border-b border-gray-700">
+          <div v-if="tabLoading" class="p-8 text-center text-tn-muted">Loading…</div>
+          <div v-else-if="!tabData.items?.length" class="p-8 text-center text-tn-muted">No records.</div>
+          <table v-else class="w-full text-xs border-collapse table-fixed">
+            <colgroup>
+              <col style="width: 2rem" />
+              <col
+                v-for="col in activeCols" :key="col"
+                :style="colWidths[col] ? { width: `${colWidths[col]}px` } : {}"
+              />
+              <col style="width: 12rem" />
+            </colgroup>
+            <thead class="sticky top-0 bg-tn-surface border-b border-tn-border">
               <tr>
                 <!-- Select-all -->
-                <th class="w-8 px-2 py-2">
+                <th class="px-2 py-2">
                   <input
                     type="checkbox"
                     :checked="allArtifactSelected"
                     :indeterminate="artifactSelected.size > 0 && !allArtifactSelected"
                     @change="toggleSelectAllArtifacts"
-                    class="accent-blue-500 cursor-pointer"
+                    class="accent-tn-accent cursor-pointer"
                   />
                 </th>
-                <th v-for="col in COLUMNS[activeTab]" :key="col"
-                    @click="setSort(col)"
-                    class="text-left px-3 py-2 font-medium font-mono whitespace-nowrap cursor-pointer select-none group"
-                    :class="sortCol === col ? 'text-gray-200' : 'text-gray-400 hover:text-gray-200'">
+                <th
+                  v-for="(col, idx) in activeCols" :key="col"
+                  draggable="true"
+                  @click="setSort(col)"
+                  @dragstart="onColDragStart(idx, $event)"
+                  @dragover.prevent="setDragOver(idx)"
+                  @dragleave="clearDragOver()"
+                  @drop.prevent="onColDrop(idx)"
+                  @dragend="onColDragEnd"
+                  class="relative text-left px-3 py-2 font-medium font-mono whitespace-nowrap cursor-pointer select-none group"
+                  :class="[
+                    sortCol === col ? 'text-tn-fg' : 'text-tn-fg-dim hover:text-tn-fg',
+                    dragOverIdx === idx ? 'bg-tn-selection' : '',
+                  ]">
                   <span class="flex items-center gap-1">
                     {{ col }}
                     <span class="text-xs transition-colors"
-                          :class="sortCol === col ? 'text-blue-400' : 'text-gray-600 group-hover:text-gray-400'">
+                          :class="sortCol === col ? 'text-tn-accent' : 'text-tn-muted group-hover:text-tn-fg-dim'">
                       <template v-if="sortCol !== col">⇅</template>
                       <template v-else>{{ sortDir === 'asc' ? '↑' : '↓' }}</template>
                     </span>
                   </span>
+                  <!-- Resize handle -->
+                  <span
+                    class="col-resize-handle"
+                    draggable="false"
+                    @mousedown.stop.prevent="startResize(col, $event)"
+                  />
                 </th>
                 <!-- Tags column header -->
-                <th class="text-left px-3 py-2 font-medium font-mono text-gray-400 whitespace-nowrap w-48">tags</th>
+                <th class="text-left px-3 py-2 font-medium font-mono text-tn-fg-dim whitespace-nowrap">tags</th>
               </tr>
             </thead>
             <tbody>
               <tr v-for="row in sortedItems" :key="row.id"
                   :class="[
-                    'border-b border-gray-800',
-                    artifactSelected.has(row.id) ? 'bg-blue-950/40 hover:bg-blue-950/60' : 'hover:bg-gray-800/40',
+                    'border-b border-tn-border',
+                    artifactSelected.has(row.id) ? 'bg-tn-selection hover:bg-tn-selection-hover' : 'hover:bg-tn-raised/40',
                   ]">
                 <!-- Checkbox -->
-                <td class="w-8 px-2 py-1.5">
+                <td class="px-2 py-1.5">
                   <input
                     type="checkbox"
                     :checked="artifactSelected.has(row.id)"
                     @mousedown="captureArtifactShift"
                     @change="toggleArtifactSelect(row.id)"
-                    class="accent-blue-500 cursor-pointer"
+                    class="accent-tn-accent cursor-pointer"
                   />
                 </td>
-                <td v-for="col in COLUMNS[activeTab]" :key="col"
-                    class="px-3 py-1.5 font-mono text-gray-300 max-w-xs truncate"
+                <td v-for="col in activeCols" :key="col"
+                    class="px-3 py-1.5 font-mono text-tn-fg-dim truncate"
                     :title="String(row[col] ?? '')">
                   {{ fmtCell(row[col]) }}
                 </td>
@@ -442,7 +525,7 @@ function sysInfoValue(row) {
                     />
                     <button
                       @click="openArtifactPicker(row.id, $event)"
-                      class="text-gray-500 hover:text-gray-300 text-xs px-1 rounded hover:bg-gray-700"
+                      class="text-tn-muted hover:text-tn-fg-dim text-xs px-1 rounded hover:bg-tn-hover"
                       title="Add tag"
                     >+</button>
                     <TagPicker
@@ -459,23 +542,28 @@ function sysInfoValue(row) {
             </tbody>
           </table>
         </div>
-        <div class="border-t border-gray-700 px-4 py-2 text-xs text-gray-400 shrink-0">
-          Showing {{ tabData.items?.length ?? 0 }} of {{ tabData.total ?? 0 }}
+        <div class="border-t border-tn-border px-4 py-2 text-xs text-tn-fg-dim shrink-0 flex items-center justify-between">
+          <span>Showing {{ tabData.items?.length ?? 0 }} of {{ tabData.total ?? 0 }}</span>
+          <button
+            @click="colPrefs.reset(activeTab)"
+            class="text-tn-muted hover:text-tn-fg-dim transition-colors"
+            title="Reset column order and widths"
+          >Reset columns</button>
         </div>
 
         <!-- Bulk action bar -->
         <Transition name="slide-up">
           <div
             v-if="artifactSelected.size > 0"
-            class="border-t border-blue-700 bg-blue-950/80 px-4 py-2 flex items-center gap-3 text-xs shrink-0"
+            class="border-t border-tn-accent bg-tn-selection-bar px-4 py-2 flex items-center gap-3 text-xs shrink-0"
           >
-            <span class="text-blue-300 font-mono">
+            <span class="text-tn-accent font-mono">
               {{ artifactSelected.size }} row{{ artifactSelected.size === 1 ? '' : 's' }} selected
             </span>
             <div class="relative">
               <button
                 @click="openArtifactPicker('bulk', $event)"
-                class="px-3 py-1 rounded bg-blue-700 hover:bg-blue-600 text-white"
+                class="px-3 py-1 rounded bg-tn-accent hover:bg-tn-accent-hover text-tn-bg"
               >Tag selected</button>
               <TagPicker
                 v-if="artifactPickerRowId === 'bulk'"
@@ -489,7 +577,7 @@ function sysInfoValue(row) {
             </div>
             <button
               @click="clearArtifactSelection"
-              class="px-3 py-1 rounded bg-gray-700 hover:bg-gray-600 text-gray-300"
+              class="px-3 py-1 rounded bg-tn-hover hover:bg-tn-border-strong text-tn-fg-dim"
             >Clear</button>
           </div>
         </Transition>
@@ -505,5 +593,18 @@ function sysInfoValue(row) {
 .slide-up-enter-from, .slide-up-leave-to {
   opacity: 0;
   transform: translateY(4px);
+}
+
+.col-resize-handle {
+  position: absolute;
+  top: 0;
+  right: 0;
+  width: 5px;
+  height: 100%;
+  cursor: col-resize;
+  user-select: none;
+}
+.col-resize-handle:hover {
+  background: rgba(96, 165, 250, 0.5);
 }
 </style>

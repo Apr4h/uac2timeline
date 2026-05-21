@@ -1,1 +1,92 @@
 @import "tailwindcss";
+
+/* ========== Tokyo Night palette ========== */
+  :root {
+    /* Night variant (default) */
+    --tn-bg:        #1a1b26;
+    --tn-bg-dark:   #16161e;
+    --tn-surface:   #1f2335;
+    --tn-raised:    #24283b;
+    --tn-hover:     #292e42;
+    --tn-border:    #3b4261;
+    --tn-border-strong:#414868;
+
+    --tn-fg:        #c0caf5;
+    --tn-fg-dim:    #a9b1d6;
+    --tn-muted:     #565f89;
+    --tn-comment:   #565f89;
+
+    --tn-blue:      #7aa2f7;
+    --tn-blue-2:    #2ac3de;
+    --tn-cyan:      #7dcfff;
+    --tn-purple:    #bb9af7;
+    --tn-magenta:   #c678dd;
+    --tn-green:     #9ece6a;
+    --tn-teal:      #73daca;
+    --tn-orange:    #ff9e64;
+    --tn-yellow:    #e0af68;
+    --tn-red:       #f7768e;
+    --tn-red-dark:  #db4b4b;
+
+    --accent:             var(--tn-blue);
+    --accent-soft:        color-mix(in oklab, var(--accent) 22%, transparent);
+    --accent-hover:       color-mix(in oklab, var(--accent) 85%, white);
+    --accent-selection:   color-mix(in oklab, var(--accent) 15%, var(--tn-surface));
+    --accent-selection-hover: color-mix(in oklab, var(--accent) 22%, var(--tn-surface));
+    --accent-selection-bar:   color-mix(in oklab, var(--accent) 28%, var(--tn-bg-dark));
+
+    --radius-sm: 4px;
+    --radius:    6px;
+    --radius-lg: 10px;
+
+    --font-ui:   "Inter", system-ui, -apple-system, "Segoe UI", sans-serif;
+    --font-mono: "JetBrains Mono", ui-monospace, SFMono-Regular, Menlo, monospace;
+  }
+
+  /* Storm variant — slightly bluer */
+  [data-flavor="storm"] {
+    --tn-bg:        #24283b;
+    --tn-bg-dark:   #1f2335;
+    --tn-surface:   #292e42;
+    --tn-raised:    #2f3549;
+    --tn-hover:     #363b54;
+    --tn-border:    #414868;
+    --tn-border-strong:#545c7e;
+  }
+
+  /* Accent swaps */
+  [data-accent="cyan"]   { --accent: var(--tn-cyan);   }
+  [data-accent="purple"] { --accent: var(--tn-purple); }
+  [data-accent="green"]  { --accent: var(--tn-green);  }
+
+/* ========== Tailwind semantic tokens ========== */
+@theme inline {
+  --color-tn-bg:               var(--tn-bg);
+  --color-tn-bg-dark:          var(--tn-bg-dark);
+  --color-tn-surface:          var(--tn-surface);
+  --color-tn-raised:           var(--tn-raised);
+  --color-tn-hover:            var(--tn-hover);
+  --color-tn-border:           var(--tn-border);
+  --color-tn-border-strong:    var(--tn-border-strong);
+  --color-tn-fg:               var(--tn-fg);
+  --color-tn-fg-dim:           var(--tn-fg-dim);
+  --color-tn-muted:            var(--tn-muted);
+  --color-tn-accent:           var(--accent);
+  --color-tn-accent-hover:     var(--accent-hover);
+  --color-tn-accent-soft:      var(--accent-soft);
+  --color-tn-selection:        var(--accent-selection);
+  --color-tn-selection-hover:  var(--accent-selection-hover);
+  --color-tn-selection-bar:    var(--accent-selection-bar);
+}
+
+  * { box-sizing: border-box; }
+  html, body { margin: 0; padding: 0; height: 100%; }
+  body {
+    background: var(--tn-bg);
+    color: var(--tn-fg);
+    font-family: var(--font-ui);
+    font-size: 14px;
+    line-height: 1.5;
+    -webkit-font-smoothing: antialiased;
+    text-rendering: optimizeLegibility;
+  }

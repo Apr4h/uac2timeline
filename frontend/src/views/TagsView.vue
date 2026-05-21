@@ -35,12 +35,10 @@ const COLOR_BADGE = {
   blue:   'bg-blue-900/60 text-blue-300 border-blue-700',
   purple: 'bg-purple-900/60 text-purple-300 border-purple-700',
   pink:   'bg-pink-900/60 text-pink-300 border-pink-700',
-  gray:   'bg-gray-700/60 text-gray-300 border-gray-600',
+  gray:   'bg-tn-hover/60 text-tn-fg-dim border-tn-border-strong',
 }
 
 onMounted(() => tagsStore.fetchTags())
-
-// ── Create ────────────────────────────────────────────────────────────────────
 
 async function submitCreate() {
   const name = newName.value.trim()
@@ -55,8 +53,6 @@ async function submitCreate() {
   }
 }
 
-// ── Edit ──────────────────────────────────────────────────────────────────────
-
 function startEdit(tag) {
   deletingId.value = null
   editingId.value = tag.id
@@ -64,9 +60,7 @@ function startEdit(tag) {
   editColor.value = tag.color
 }
 
-function cancelEdit() {
-  editingId.value = null
-}
+function cancelEdit() { editingId.value = null }
 
 async function submitEdit() {
   const name = editName.value.trim()
@@ -80,16 +74,12 @@ async function submitEdit() {
   }
 }
 
-// ── Delete ────────────────────────────────────────────────────────────────────
-
 function startDelete(tag) {
   editingId.value = null
   deletingId.value = tag.id
 }
 
-function cancelDelete() {
-  deletingId.value = null
-}
+function cancelDelete() { deletingId.value = null }
 
 async function confirmDelete() {
   if (saving.value) return
@@ -105,19 +95,18 @@ async function confirmDelete() {
 
 <template>
   <div class="max-w-2xl mx-auto px-6 py-8">
-    <h1 class="text-xl font-semibold text-gray-100 mb-6">Tag Manager</h1>
+    <h1 class="text-xl font-semibold text-tn-fg mb-6">Tag Manager</h1>
 
     <!-- Create form -->
-    <div class="bg-gray-900 border border-gray-700 rounded-lg p-4 mb-6">
-      <label class="text-xs font-semibold text-gray-400 uppercase tracking-wider block mb-3">New tag</label>
+    <div class="bg-tn-surface border border-tn-border rounded-lg p-4 mb-6">
+      <label class="text-xs font-semibold text-tn-fg-dim uppercase tracking-wider block mb-3">New tag</label>
       <div class="flex items-center gap-3 flex-wrap">
         <input
           v-model="newName"
           placeholder="Tag name"
           @keydown.enter="submitCreate"
-          class="bg-gray-800 border border-gray-600 rounded px-3 py-1.5 text-sm text-gray-100 placeholder-gray-500 focus:outline-none focus:border-blue-500 w-48"
+          class="bg-tn-raised border border-tn-border-strong rounded px-3 py-1.5 text-sm text-tn-fg placeholder-tn-muted focus:outline-none focus:border-tn-accent w-48"
         />
-        <!-- Color swatches -->
         <div class="flex gap-1.5">
           <button
             v-for="c in COLORS"
@@ -126,7 +115,7 @@ async function confirmDelete() {
             :class="[
               'w-5 h-5 rounded-full transition-all',
               COLOR_DOT[c],
-              newColor === c ? 'ring-2 ring-white ring-offset-1 ring-offset-gray-900 scale-110' : 'opacity-60 hover:opacity-90',
+              newColor === c ? 'ring-2 ring-white ring-offset-1 ring-offset-tn-surface scale-110' : 'opacity-60 hover:opacity-90',
             ]"
             :title="c"
           />
@@ -134,25 +123,25 @@ async function confirmDelete() {
         <button
           @click="submitCreate"
           :disabled="!newName.trim() || saving"
-          class="px-3 py-1.5 rounded bg-blue-700 hover:bg-blue-600 disabled:opacity-40 disabled:cursor-not-allowed text-sm text-white transition-colors"
+          class="px-3 py-1.5 rounded bg-tn-accent hover:bg-tn-accent-hover disabled:opacity-40 disabled:cursor-not-allowed text-sm text-tn-bg transition-colors"
         >Create</button>
       </div>
     </div>
 
     <!-- Tag list -->
-    <div class="bg-gray-900 border border-gray-700 rounded-lg overflow-hidden">
-      <div class="px-4 py-2.5 border-b border-gray-700">
-        <span class="text-xs font-semibold text-gray-400 uppercase tracking-wider">
+    <div class="bg-tn-surface border border-tn-border rounded-lg overflow-hidden">
+      <div class="px-4 py-2.5 border-b border-tn-border">
+        <span class="text-xs font-semibold text-tn-fg-dim uppercase tracking-wider">
           Tags
-          <span class="ml-1 text-gray-600 font-normal normal-case">({{ tagsStore.tags.length }})</span>
+          <span class="ml-1 text-tn-muted font-normal normal-case">({{ tagsStore.tags.length }})</span>
         </span>
       </div>
 
-      <div v-if="!tagsStore.tags.length" class="px-4 py-8 text-center text-sm text-gray-500">
+      <div v-if="!tagsStore.tags.length" class="px-4 py-8 text-center text-sm text-tn-muted">
         No tags yet. Create one above.
       </div>
 
-      <ul v-else class="divide-y divide-gray-800">
+      <ul v-else class="divide-y divide-tn-border">
         <li v-for="tag in tagsStore.tags" :key="tag.id">
 
           <!-- Delete confirmation state -->
@@ -168,17 +157,17 @@ async function confirmDelete() {
             >Delete</button>
             <button
               @click="cancelDelete"
-              class="px-3 py-1 rounded bg-gray-700 hover:bg-gray-600 text-xs text-gray-300"
+              class="px-3 py-1 rounded bg-tn-hover hover:bg-tn-border-strong text-xs text-tn-fg-dim"
             >Cancel</button>
           </div>
 
           <!-- Edit state -->
-          <div v-else-if="editingId === tag.id" class="px-4 py-3 flex items-center gap-3 flex-wrap bg-gray-800/50">
+          <div v-else-if="editingId === tag.id" class="px-4 py-3 flex items-center gap-3 flex-wrap bg-tn-raised/50">
             <input
               v-model="editName"
               @keydown.enter="submitEdit"
               @keydown.esc="cancelEdit"
-              class="bg-gray-800 border border-gray-600 rounded px-3 py-1.5 text-sm text-gray-100 focus:outline-none focus:border-blue-500 w-48"
+              class="bg-tn-raised border border-tn-border-strong rounded px-3 py-1.5 text-sm text-tn-fg focus:outline-none focus:border-tn-accent w-48"
               autofocus
             />
             <div class="flex gap-1.5">
@@ -189,7 +178,7 @@ async function confirmDelete() {
                 :class="[
                   'w-5 h-5 rounded-full transition-all',
                   COLOR_DOT[c],
-                  editColor === c ? 'ring-2 ring-white ring-offset-1 ring-offset-gray-900 scale-110' : 'opacity-60 hover:opacity-90',
+                  editColor === c ? 'ring-2 ring-white ring-offset-1 ring-offset-tn-surface scale-110' : 'opacity-60 hover:opacity-90',
                 ]"
                 :title="c"
               />
@@ -198,26 +187,26 @@ async function confirmDelete() {
               <button
                 @click="submitEdit"
                 :disabled="!editName.trim() || saving"
-                class="px-3 py-1 rounded bg-blue-700 hover:bg-blue-600 disabled:opacity-40 text-xs text-white"
+                class="px-3 py-1 rounded bg-tn-accent hover:bg-tn-accent-hover disabled:opacity-40 text-xs text-tn-bg"
               >Save</button>
               <button
                 @click="cancelEdit"
-                class="px-3 py-1 rounded bg-gray-700 hover:bg-gray-600 text-xs text-gray-300"
+                class="px-3 py-1 rounded bg-tn-hover hover:bg-tn-border-strong text-xs text-tn-fg-dim"
               >Cancel</button>
             </div>
           </div>
 
           <!-- Normal state -->
-          <div v-else class="px-4 py-3 flex items-center gap-3 hover:bg-gray-800/30 transition-colors">
+          <div v-else class="px-4 py-3 flex items-center gap-3 hover:bg-tn-raised/30 transition-colors">
             <span :class="[
               'inline-flex items-center text-xs font-mono px-1.5 py-0.5 rounded border',
               COLOR_BADGE[tag.color] ?? COLOR_BADGE.gray,
             ]">{{ tag.name }}</span>
-            <span v-if="tag.is_default" class="text-xs text-gray-600 font-mono">default</span>
+            <span v-if="tag.is_default" class="text-xs text-tn-muted font-mono">default</span>
             <div class="flex gap-1 ml-auto">
               <button
                 @click="startEdit(tag)"
-                class="p-1.5 rounded text-gray-500 hover:text-gray-200 hover:bg-gray-700 transition-colors"
+                class="p-1.5 rounded text-tn-muted hover:text-tn-fg hover:bg-tn-hover transition-colors"
                 title="Rename / recolor"
               >
                 <svg xmlns="http://www.w3.org/2000/svg" class="w-3.5 h-3.5" viewBox="0 0 20 20" fill="currentColor">
@@ -226,7 +215,7 @@ async function confirmDelete() {
               </button>
               <button
                 @click="startDelete(tag)"
-                class="p-1.5 rounded text-gray-500 hover:text-red-400 hover:bg-gray-700 transition-colors"
+                class="p-1.5 rounded text-tn-muted hover:text-red-400 hover:bg-tn-hover transition-colors"
                 title="Delete tag"
               >
                 <svg xmlns="http://www.w3.org/2000/svg" class="w-3.5 h-3.5" viewBox="0 0 20 20" fill="currentColor">
