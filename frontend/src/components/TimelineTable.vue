@@ -1,5 +1,5 @@
 <script setup>
-import { ref, computed } from 'vue'
+import { ref, computed, onUnmounted } from 'vue'
 import { useTagsStore } from '../stores/tags.js'
 import { useNotesStore } from '../stores/notes.js'
 import TagBadge from './TagBadge.vue'
@@ -182,6 +182,55 @@ function fmtTs(ts) {
   return new Date(ts).toISOString().replace('T', ' ').replace('Z', '').slice(0, 19)
 }
 
+// ── Column resize ─────────────────────────────────────────────────────────────
+const COL_WIDTHS_KEY = 'uac_timeline_colwidths'
+const COL_DEFAULTS = { timestamp: 176, type: 112, summary: 400, note: 192, tags: 224 }
+
+function loadColWidths() {
+  try {
+    const raw = localStorage.getItem(COL_WIDTHS_KEY)
+    return raw ? { ...COL_DEFAULTS, ...JSON.parse(raw) } : { ...COL_DEFAULTS }
+  } catch { return { ...COL_DEFAULTS } }
+}
+
+const colWidths = ref(loadColWidths())
+
+function saveColWidths() {
+  try { localStorage.setItem(COL_WIDTHS_KEY, JSON.stringify(colWidths.value)) } catch {}
+}
+
+let _resizeCol    = null
+let _resizeStartX = 0
+let _resizeStartW = 0
+
+function startColResize(col, event) {
+  _resizeCol    = col
+  _resizeStartX = event.clientX
+  _resizeStartW = event.currentTarget.parentElement.getBoundingClientRect().width
+  document.addEventListener('mousemove', onColResizeMove)
+  document.addEventListener('mouseup',   onColResizeUp)
+}
+
+function onColResizeMove(event) {
+  if (!_resizeCol) return
+  colWidths.value = {
+    ...colWidths.value,
+    [_resizeCol]: Math.max(40, Math.round(_resizeStartW + (event.clientX - _resizeStartX))),
+  }
+}
+
+function onColResizeUp() {
+  if (_resizeCol) saveColWidths()
+  _resizeCol = null
+  document.removeEventListener('mousemove', onColResizeMove)
+  document.removeEventListener('mouseup',   onColResizeUp)
+}
+
+onUnmounted(() => {
+  document.removeEventListener('mousemove', onColResizeMove)
+  document.removeEventListener('mouseup',   onColResizeUp)
+})
+
 // ── File preview ──────────────────────────────────────────────────────────────
 // Maps artifact_type → the details key that holds the logical filesystem path
 const FILE_PREVIEW_FIELD = {
@@ -341,7 +390,15 @@ async function onNoteDeleteConfirm() {
 <template>
   <div class="flex flex-col h-full">
     <div class="overflow-auto flex-1">
-      <table class="w-full text-sm border-collapse">
+      <table class="min-w-full text-sm border-collapse table-fixed">
+        <colgroup>
+          <col style="width: 2rem" />
+          <col :style="{ width: `${colWidths.timestamp}px` }" />
+          <col :style="{ width: `${colWidths.type}px` }" />
+          <col :style="{ width: `${colWidths.summary}px` }" />
+          <col :style="{ width: `${colWidths.note}px` }" />
+          <col :style="{ width: `${colWidths.tags}px` }" />
+        </colgroup>
         <thead class="sticky top-0 bg-tn-surface border-b border-tn-border z-10">
           <tr>
             <th class="w-8 px-2 py-2">
@@ -353,11 +410,26 @@ async function onNoteDeleteConfirm() {
                 class="accent-tn-accent cursor-pointer"
               />
             </th>
-            <th class="text-left px-3 py-2 text-xs text-tn-fg-dim font-medium w-44">Timestamp</th>
-            <th class="text-left px-3 py-2 text-xs text-tn-fg-dim font-medium w-28">Type</th>
-            <th class="text-left px-3 py-2 text-xs text-tn-fg-dim font-medium">Summary</th>
-            <th class="text-left px-3 py-2 text-xs text-tn-fg-dim font-medium w-48">Note</th>
-            <th class="text-left px-3 py-2 text-xs text-tn-fg-dim font-medium w-48">Tags</th>
+            <th class="relative text-left px-3 py-2 text-xs text-tn-fg-dim font-medium overflow-hidden whitespace-nowrap select-none">
+              Timestamp
+              <span class="col-resize-handle" draggable="false" @mousedown.stop.prevent="startColResize('timestamp', $event)" />
+            </th>
+            <th class="relative text-left px-3 py-2 text-xs text-tn-fg-dim font-medium overflow-hidden whitespace-nowrap select-none">
+              Type
+              <span class="col-resize-handle" draggable="false" @mousedown.stop.prevent="startColResize('type', $event)" />
+            </th>
+            <th class="relative text-left px-3 py-2 text-xs text-tn-fg-dim font-medium overflow-hidden whitespace-nowrap select-none">
+              Summary
+              <span class="col-resize-handle" draggable="false" @mousedown.stop.prevent="startColResize('summary', $event)" />
+            </th>
+            <th class="relative text-left px-3 py-2 text-xs text-tn-fg-dim font-medium overflow-hidden whitespace-nowrap select-none">
+              Note
+              <span class="col-resize-handle" draggable="false" @mousedown.stop.prevent="startColResize('note', $event)" />
+            </th>
+            <th class="relative text-left px-3 py-2 text-xs text-tn-fg-dim font-medium overflow-hidden whitespace-nowrap select-none">
+              Tags
+              <span class="col-resize-handle" draggable="false" @mousedown.stop.prevent="startColResize('tags', $event)" />
+            </th>
           </tr>
         </thead>
         <tbody>
@@ -389,14 +461,14 @@ async function onNoteDeleteConfirm() {
                   class="accent-tn-accent cursor-pointer"
                 />
               </td>
-              <td class="px-3 py-1.5 font-mono text-xs text-tn-fg-dim whitespace-nowrap">{{ fmtTs(ev.timestamp) }}</td>
+              <td class="px-3 py-1.5 font-mono text-xs text-tn-fg-dim truncate max-w-0">{{ fmtTs(ev.timestamp) }}</td>
               <td class="px-3 py-1.5">
                 <span :class="['text-xs font-mono px-1.5 py-0.5 rounded border', typeClass(ev.artifact_type)]">
                   {{ ev.artifact_type }}
                 </span>
               </td>
-              <td class="px-3 py-1.5 text-tn-fg font-mono text-xs truncate max-w-0 w-full">{{ ev.summary }}</td>
-              <td class="px-3 py-1.5 w-48 max-w-48" @click.stop>
+              <td class="px-3 py-1.5 text-tn-fg font-mono text-xs truncate max-w-0">{{ ev.summary }}</td>
+              <td class="px-3 py-1.5 max-w-0 overflow-hidden" @click.stop>
                 <span
                   v-if="notesStore.getNoteForRow(ev.artifact_type, ev.id)"
                   class="text-xs text-tn-fg-dim font-mono truncate block max-w-full cursor-default"
@@ -570,5 +642,22 @@ async function onNoteDeleteConfirm() {
 .slide-up-enter-from, .slide-up-leave-to {
   opacity: 0;
   transform: translateY(4px);
+}
+
+.col-resize-handle {
+  position: absolute;
+  top: 0;
+  right: 0;
+  width: 5px;
+  height: 100%;
+  cursor: col-resize;
+  user-select: none;
+  border-right: 2px solid rgba(255, 255, 255, 0.1);
+  transition: border-color 0.15s ease, background 0.15s ease;
+}
+.col-resize-handle:hover,
+.col-resize-handle:active {
+  background: rgba(96, 165, 250, 0.25);
+  border-right-color: rgba(96, 165, 250, 0.7);
 }
 </style>

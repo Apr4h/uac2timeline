@@ -624,7 +624,7 @@ function sysInfoValue(row) {
                   @dragleave="clearDragOver()"
                   @drop.prevent="onColDrop(idx)"
                   @dragend="onColDragEnd"
-                  class="relative text-left px-3 py-2 font-medium font-mono whitespace-nowrap cursor-pointer select-none group"
+                  class="relative text-left px-3 py-2 font-medium font-mono whitespace-nowrap overflow-hidden cursor-pointer select-none group"
                   :class="[
                     sortCol === col ? 'text-tn-fg' : 'text-tn-fg-dim hover:text-tn-fg',
                     dragOverIdx === idx ? 'bg-tn-selection' : '',
@@ -667,7 +667,7 @@ function sysInfoValue(row) {
                   />
                 </td>
                 <td v-for="col in activeCols" :key="col"
-                    class="px-3 py-1.5 font-mono text-tn-fg-dim truncate"
+                    class="px-3 py-1.5 font-mono text-tn-fg-dim truncate max-w-0"
                     :title="String(row[col] ?? '')">
                   {{ fmtCell(row[col]) }}
                 </td>
@@ -810,8 +810,12 @@ function sysInfoValue(row) {
   height: 100%;
   cursor: col-resize;
   user-select: none;
+  border-right: 2px solid rgba(255, 255, 255, 0.1);
+  transition: border-color 0.15s ease, background 0.15s ease;
 }
-.col-resize-handle:hover {
-  background: rgba(96, 165, 250, 0.5);
+.col-resize-handle:hover,
+.col-resize-handle:active {
+  background: rgba(96, 165, 250, 0.25);
+  border-right-color: rgba(96, 165, 250, 0.7);
 }
 </style>
