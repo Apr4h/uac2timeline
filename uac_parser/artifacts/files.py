@@ -1,10 +1,20 @@
 from uac_parser.grok_patterns import bodyfile_patterns, custom_patterns
-from pygrok import Grok
+from uac_parser.grok import Grok
 import os
 import logging
 from tqdm import tqdm
 import datetime
 from uac_parser.models import File
+
+
+def _epoch_to_dt(val) -> datetime.datetime | None:
+    if val is None:
+        return None
+    try:
+        return datetime.datetime.utcfromtimestamp(int(val))
+    except (ValueError, TypeError, OSError):
+        return None
+
 
 def parse_bodyfile(uac_collection_path: str):
     bodyfile_path = os.path.join(uac_collection_path, "bodyfile", "bodyfile.txt")
@@ -30,14 +40,14 @@ def parse_bodyfile(uac_collection_path: str):
                     md5=match.get('md5'),
                     path=match.get('file_path'),
                     inode=int(match.get('inode', 0)) if match.get('inode') else None,
-                    mode=match.get('mode_as_string'), # Using string mode as per pattern v2/v3 overlap
+                    mode=match.get('mode_as_string'),
                     uid=int(match.get('uid', 0)) if match.get('uid') else None,
                     gid=int(match.get('gid', 0)) if match.get('gid') else None,
                     size=int(match.get('size', 0)) if match.get('size') else None,
-                    atime=match.get('atime'),
-                    mtime=match.get('mtime'),
-                    ctime=match.get('ctime'),
-                    crtime=match.get('crtime')
+                    atime=_epoch_to_dt(match.get('atime')),
+                    mtime=_epoch_to_dt(match.get('mtime')),
+                    ctime=_epoch_to_dt(match.get('ctime')),
+                    crtime=_epoch_to_dt(match.get('crtime')),
                 )
                 files.append(file_obj)
     

@@ -1,7 +1,7 @@
 import os
 import logging
 import plistlib
-from pygrok import Grok
+from uac_parser.grok import Grok
 from uac_parser.grok_patterns import user_patterns, custom_patterns
 from uac_parser.models import User
 from uac_parser.utils import safe_int

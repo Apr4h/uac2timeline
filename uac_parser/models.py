@@ -16,12 +16,14 @@ class UACCollection(Base):
     created_at = Column(DateTime, default=datetime.datetime.utcnow)
 
 
+    system_info = relationship("SystemInfo", back_populates="collection", uselist=False)
     files = relationship("File", back_populates="collection")
     processes = relationship("Process", back_populates="collection")
     network_connections = relationship("NetworkConnection", back_populates="collection")
     authentications = relationship("Authentication", back_populates="collection")
     command_history = relationship("CommandHistory", back_populates="collection")
     users = relationship("User", back_populates="collection")
+    cron_jobs = relationship("CronJob", back_populates="collection")
 
     def __repr__(self):
         return f"<UACCollection(hostname='{self.hostname}')>"
@@ -83,18 +85,16 @@ class File(Base):
     atime = Column(DateTime)
     mtime = Column(DateTime)
     ctime = Column(DateTime)
+    crtime = Column(DateTime)
     inode = Column(Integer)
-    mode = Column(Integer)
+    mode = Column(String)
     uid = Column(Integer)
     gid = Column(Integer)
     rdev = Column(Integer)
     nlink = Column(Integer)
     flags = Column(Integer)
-    crtime = Column(Integer)
     btime = Column(Integer)
     dtime = Column(Integer)
-    btime = Column(Integer)
-    btime = Column(Integer)
 
     collection = relationship("UACCollection", back_populates="files")
 
@@ -189,3 +189,52 @@ class User(Base):
     
     def __repr__(self):
         return f"<User(username='{self.username}', uid={self.uid})>"
+
+
+class CronJob(Base):
+    __tablename__ = 'cron_jobs'
+
+    id             = Column(Integer, primary_key=True)
+    collection_id  = Column(Integer, ForeignKey('uac_collections.id'))
+
+    minute         = Column(String)   # cron minute field, or '@reboot' etc.
+    hour           = Column(String)
+    day_of_month   = Column(String)
+    month          = Column(String)
+    day_of_week    = Column(String)
+
+    username       = Column(String)   # run-as user; filename for user crontabs
+    command        = Column(String)
+
+    source_file          = Column(String)   # e.g. /etc/cron.d/sysstat
+    source_type          = Column(String)   # system | cron.d | user | cron.hourly | …
+    source_file_modified = Column(DateTime) # UTC mtime of the source file
+
+    collection = relationship("UACCollection", back_populates="cron_jobs")
+
+    def __repr__(self):
+        return f"<CronJob(source_type='{self.source_type}', command='{self.command}')>"
+
+
+class SystemInfo(Base):
+    __tablename__ = 'system_info'
+
+    id              = Column(Integer, primary_key=True)
+    collection_id   = Column(Integer, ForeignKey('uac_collections.id'), unique=True)
+    hostname        = Column(String)
+    fqdn            = Column(String)
+    primary_ip      = Column(String)
+    os_name         = Column(String)
+    kernel          = Column(String)
+    cpu_arch        = Column(String)
+    timezone_name   = Column(String)
+    timezone_offset = Column(String)  # ISO 8601 signed offset, e.g. +10:30 or -05:00
+    memory_bytes    = Column(Integer)
+    domain          = Column(String)
+    hardware_model  = Column(String)
+    virtualization  = Column(String)
+
+    collection = relationship("UACCollection", back_populates="system_info")
+
+    def __repr__(self):
+        return f"<SystemInfo(hostname='{self.hostname}', os='{self.os_name}')>"

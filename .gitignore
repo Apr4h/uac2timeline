@@ -1,7 +1,27 @@
+# Test data
 test_data/
-venv/
-__pycache__
-uac2timeline.egg-info
-uac.db
-.DS_Store
 
+# Python
+venv/
+__pycache__/
+*.pyc
+*.pyo
+uac2timeline.egg-info/
+
+# Database
+*.db
+
+# Runtime: uploads and extracted collections
+uploads/
+data/
+
+# Environment variables
+.env
+.env.*
+
+# Celery
+celerybeat-schedule
+celerybeat.pid
+
+# macOS
+.DS_Store

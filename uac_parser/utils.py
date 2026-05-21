@@ -29,35 +29,27 @@ def parse_timestamp_from_match(match: Dict[str, Any]) -> Optional[datetime]:
         timestamp_str = match['TIMESTAMP_ISO8601']
         if timestamp_str:
             try:
-                # Handle timezone info - strip it for simplicity
-                timestamp_str = timestamp_str.split('+')[0].split('-')[0]
-                # Try with microseconds
-                if '.' in timestamp_str:
-                    return datetime.fromisoformat(timestamp_str)
-                else:
-                    # Try without microseconds
-                    return datetime.strptime(timestamp_str[:19], "%Y-%m-%dT%H:%M:%S")
-            except (ValueError, IndexError) as e:
+                from datetime import timezone as _tz
+                ts = timestamp_str.strip().replace('Z', '+00:00')
+                dt = datetime.fromisoformat(ts)
+                if dt.tzinfo is not None:
+                    dt = dt.astimezone(_tz.utc).replace(tzinfo=None)
+                return dt
+            except (ValueError, AttributeError) as e:
                 logging.debug(f"Failed to parse TIMESTAMP_ISO8601 '{timestamp_str}': {e}")
-    
+
     # Try generic 'timestamp' field
     if 'timestamp' in match:
         timestamp_str = match['timestamp']
         if timestamp_str:
             try:
-                # Remove timezone suffix for parsing
-                cleaned = timestamp_str.replace('+00:00', '').replace('Z', '')
-                # Try ISO format
-                if 'T' in cleaned:
-                    if '.' in cleaned:
-                        # With microseconds
-                        return datetime.fromisoformat(cleaned)
-                    else:
-                        # Without microseconds
-                        return datetime.strptime(cleaned[:19], "%Y-%m-%dT%H:%M:%S")
-                # Try other common formats
-                return datetime.fromisoformat(cleaned)
-            except (ValueError, IndexError) as e:
+                from datetime import timezone as _tz
+                ts = timestamp_str.strip().replace('Z', '+00:00')
+                dt = datetime.fromisoformat(ts)
+                if dt.tzinfo is not None:
+                    dt = dt.astimezone(_tz.utc).replace(tzinfo=None)
+                return dt
+            except (ValueError, AttributeError) as e:
                 logging.debug(f"Failed to parse timestamp '{timestamp_str}': {e}")
     
     # Try day/month/monthday/hour/minute components (e.g., from 'last' command)

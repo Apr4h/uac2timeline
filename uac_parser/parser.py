@@ -4,7 +4,7 @@ import hashlib
 from .models import UACCollection, File
 from .database import DEFAULT_DB_NAME
 from .grok_patterns import bodyfile_patterns
-from pygrok import Grok
+from uac_parser.grok import Grok
 import datetime
 from tqdm import tqdm
 from .artifacts.files import parse_bodyfile, parse_hash_executables

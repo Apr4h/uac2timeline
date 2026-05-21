@@ -1,5 +1,5 @@
 from uac_parser.grok_patterns import process_patterns, custom_patterns
-from pygrok import Grok
+from uac_parser.grok import Grok
 import os
 import logging
 from datetime import datetime

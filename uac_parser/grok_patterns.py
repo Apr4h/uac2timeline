@@ -1,5 +1,3 @@
-import pygrok
-
 custom_patterns = {
     # Linux file permissions mode
     "MODE_AS_STRING": "[-dlbpcs][-rwxst]{9}",

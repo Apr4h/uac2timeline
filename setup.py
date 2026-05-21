@@ -13,7 +13,7 @@ setup(
     install_requires=[
         "pytsk3",
         "sqlalchemy",
-        "pygrok",
+        "regex",
         "tqdm",
         "rich",
     ],
