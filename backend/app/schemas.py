@@ -75,6 +75,7 @@ class CollectionOut(BaseModel):
     user_count: int = 0
     cron_count: int = 0
     systemd_count: int = 0
+    rcscripts_count: int = 0
     # Latest processing job summary
     latest_job: Optional[ProcessingJobOut] = None
 
@@ -295,6 +296,29 @@ class PaginatedSystemdServices(BaseModel):
     items: list[SystemdServiceOut]
 
 
+class RcScriptOut(BaseModel):
+    id: int
+    path: Optional[str]
+    source_type: Optional[str]
+    run_context: Optional[str]
+    username: Optional[str]
+    shell: Optional[str]
+    interpreter: Optional[str]
+    file_size: Optional[int]
+    content_snippet: Optional[str]
+    source_file_modified: UTCDatetime
+
+    class Config:
+        from_attributes = True
+
+
+class PaginatedRcScripts(BaseModel):
+    total: int
+    offset: int
+    limit: int
+    items: list[RcScriptOut]
+
+
 class TagOut(BaseModel):
     id: int
     name: str
@@ -336,6 +360,15 @@ class TaggingRemove(BaseModel):
     tag_id: int
     artifact_type: str
     artifact_ids: list[int]
+
+
+class FilePreviewResponse(BaseModel):
+    path: str
+    available: bool
+    binary: bool = False
+    content: Optional[str] = None
+    size: Optional[int] = None
+    truncated: bool = False
 
 
 class SystemInfoOut(BaseModel):

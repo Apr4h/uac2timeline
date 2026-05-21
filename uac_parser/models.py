@@ -25,6 +25,7 @@ class UACCollection(Base):
     users = relationship("User", back_populates="collection")
     cron_jobs = relationship("CronJob", back_populates="collection")
     systemd_services = relationship("SystemdService", back_populates="collection")
+    rc_scripts = relationship("RcScript", back_populates="collection")
 
     def __repr__(self):
         return f"<UACCollection(hostname='{self.hostname}')>"
@@ -251,6 +252,28 @@ class SystemdService(Base):
 
     def __repr__(self):
         return f"<SystemdService(unit_name='{self.unit_name}', unit_type='{self.unit_type}')>"
+
+
+class RcScript(Base):
+    __tablename__ = 'rc_scripts'
+
+    id                   = Column(Integer, primary_key=True)
+    collection_id        = Column(Integer, ForeignKey('uac_collections.id'))
+
+    path                 = Column(String)   # full path as on the original system
+    source_type          = Column(String)   # system-init | profile | shellrc | bsd-rcd | profile-d | startup-item | session
+    run_context          = Column(String)   # boot | login | interactive | logout | session
+    username             = Column(String)   # None for system-wide files
+    shell                = Column(String)   # bash | zsh | sh | ksh | csh | tcsh | unknown
+    interpreter          = Column(String)   # shebang line content
+    file_size            = Column(Integer)
+    content_snippet      = Column(String)   # first N non-blank, non-comment lines (not shown in table columns)
+    source_file_modified = Column(DateTime)
+
+    collection = relationship("UACCollection", back_populates="rc_scripts")
+
+    def __repr__(self):
+        return f"<RcScript(path='{self.path}', source_type='{self.source_type}')>"
 
 
 class SystemInfo(Base):

@@ -3,11 +3,14 @@ import { ref, computed } from 'vue'
 import { useTagsStore } from '../stores/tags.js'
 import TagBadge from './TagBadge.vue'
 import TagPicker from './TagPicker.vue'
+import ContextMenu from './ContextMenu.vue'
+import FilePreviewModal from './FilePreviewModal.vue'
 
 const props = defineProps({
   events: Array,
   total: Number,
   loading: Boolean,
+  collectionId: Number,
 })
 const emit = defineEmits(['loadMore'])
 
@@ -163,6 +166,7 @@ const TYPE_COLORS = {
   files:      'bg-orange-900/60 text-orange-300 border-orange-700',
   services:   'bg-blue-900/60 text-blue-300 border-blue-700',
   cron:       'bg-pink-900/60 text-pink-300 border-pink-700',
+  rcscripts:  'bg-red-900/60 text-red-300 border-red-700',
 }
 
 function typeClass(t) {
@@ -172,6 +176,47 @@ function typeClass(t) {
 function fmtTs(ts) {
   if (!ts) return '—'
   return new Date(ts).toISOString().replace('T', ' ').replace('Z', '').slice(0, 19)
+}
+
+// ── File preview ──────────────────────────────────────────────────────────────
+// Maps artifact_type → the details key that holds the logical filesystem path
+const FILE_PREVIEW_FIELD = {
+  rcscripts:  'path',
+  cron:       'source_file',
+  services:   'source_path',
+  files:      'path',
+  cmdhistory: 'history_file',
+}
+
+function getPreviewPath(ev) {
+  const field = FILE_PREVIEW_FIELD[ev.artifact_type]
+  return field ? (ev.details?.[field] ?? null) : null
+}
+
+const contextMenu = ref(null)   // { x, y, ev } | null
+const previewTarget = ref(null) // { artifactType, path } | null
+
+function openContextMenu(ev, mouseEvent) {
+  const previewPath = getPreviewPath(ev)
+  contextMenu.value = {
+    x: mouseEvent.clientX,
+    y: mouseEvent.clientY,
+    items: [
+      {
+        label: 'Open file preview',
+        disabled: !previewPath,
+        _path: previewPath,
+        _type: ev.artifact_type,
+      },
+    ],
+  }
+}
+
+function onContextMenuSelect(idx) {
+  const item = contextMenu.value?.items[idx]
+  if (!item || item.disabled) return
+  previewTarget.value = { artifactType: item._type, path: item._path }
+  contextMenu.value = null
 }
 </script>
 
@@ -214,6 +259,7 @@ function fmtTs(ts) {
                 selected.has(rowKey(ev)) ? 'bg-tn-selection hover:bg-tn-selection-hover' : 'hover:bg-tn-raised/50',
               ]"
               @click="toggleRow(rowKey(ev))"
+              @contextmenu.prevent="openContextMenu(ev, $event)"
             >
               <td class="w-8 px-2 py-1.5" @click.stop>
                 <input
@@ -312,6 +358,25 @@ function fmtTs(ts) {
         Load more
       </button>
     </div>
+
+    <!-- Context menu -->
+    <ContextMenu
+      v-if="contextMenu"
+      :items="contextMenu.items"
+      :x="contextMenu.x"
+      :y="contextMenu.y"
+      @select="onContextMenuSelect"
+      @close="contextMenu = null"
+    />
+
+    <!-- File preview modal -->
+    <FilePreviewModal
+      v-if="previewTarget && collectionId"
+      :collection-id="collectionId"
+      :artifact-type="previewTarget.artifactType"
+      :path="previewTarget.path"
+      @close="previewTarget = null"
+    />
 
     <!-- Bulk action bar -->
     <Transition name="slide-up">

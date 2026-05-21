@@ -258,6 +258,17 @@ def parse_bodyfile_task(self, artifact_job_id: int, collection_id: int, processi
     )
 
 
+@celery.task(bind=True, name="tasks.parse_rcscripts")
+def parse_rcscripts_task(self, artifact_job_id: int, collection_id: int, processing_job_id: int, collection_path: str):
+    from uac_parser.artifacts.rcscripts import parse_rc_scripts
+    return _run_artifact_task(
+        artifact_job_id, collection_id, processing_job_id,
+        parse_fn=parse_rc_scripts,
+        set_id_fn=lambda obj, cid: setattr(obj, "collection_id", cid),
+        uac_collection_path=collection_path,
+    )
+
+
 # ── Orchestrator task ─────────────────────────────────────────────────────────
 
 ARTIFACT_TASKS = {
@@ -269,6 +280,7 @@ ARTIFACT_TASKS = {
     "cron": parse_cron_task,
     "systemd": parse_systemd_task,
     "bodyfile": parse_bodyfile_task,
+    "rcscripts": parse_rcscripts_task,
 }
 
 
@@ -350,6 +362,9 @@ def process_collection(self, job_id: int, collection_path: str, collection_id: i
     ))
     subtasks.append(parse_bodyfile_task.s(
         artifact_job_ids["bodyfile"], collection_id, job_id, collection_path
+    ))
+    subtasks.append(parse_rcscripts_task.s(
+        artifact_job_ids["rcscripts"], collection_id, job_id, collection_path
     ))
 
     # Run all subtasks in parallel, then finalize

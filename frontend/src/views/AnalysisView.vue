@@ -11,6 +11,8 @@ import FilterBar from '../components/FilterBar.vue'
 import ProcessingStatus from '../components/ProcessingStatus.vue'
 import TagBadge from '../components/TagBadge.vue'
 import TagPicker from '../components/TagPicker.vue'
+import ContextMenu from '../components/ContextMenu.vue'
+import FilePreviewModal from '../components/FilePreviewModal.vue'
 
 const route = useRoute()
 const router = useRouter()
@@ -34,6 +36,7 @@ const TABS = [
   { key: 'files',      label: 'Files' },
   { key: 'cron',       label: 'Cron' },
   { key: 'services',  label: 'Services' },
+  { key: 'rcscripts', label: 'RC Scripts' },
 ]
 
 // System info tab state
@@ -218,6 +221,42 @@ async function onArtifactPickerRemove(tagId) {
   }
 }
 
+// ── Context menu + file preview ───────────────────────────────────────────────
+const FILE_PREVIEW_FIELD = {
+  rcscripts:  'path',
+  cron:       'source_file',
+  services:   'source_path',
+  files:      'path',
+  cmdhistory: 'history_file',
+}
+
+const artifactContextMenu = ref(null)  // { x, y, items } | null
+const previewTarget = ref(null)         // { artifactType, path } | null
+
+function openArtifactContextMenu(row, mouseEvent) {
+  const field = FILE_PREVIEW_FIELD[activeTab.value]
+  const path = field ? (row[field] ?? null) : null
+  artifactContextMenu.value = {
+    x: mouseEvent.clientX,
+    y: mouseEvent.clientY,
+    items: [
+      {
+        label: 'Open file preview',
+        disabled: !path,
+        _path: path,
+        _type: activeTab.value,
+      },
+    ],
+  }
+}
+
+function onArtifactContextMenuSelect(idx) {
+  const item = artifactContextMenu.value?.items[idx]
+  if (!item || item.disabled) return
+  previewTarget.value = { artifactType: item._type, path: item._path }
+  artifactContextMenu.value = null
+}
+
 onMounted(async () => {
   await loadCollection()
   await tagsStore.fetchTags()
@@ -236,6 +275,7 @@ const COL_DEFAULTS = {
   files:      ['path', 'mode', 'size', 'uid', 'gid', 'atime', 'mtime', 'ctime'],
   cron:       ['source_type', 'username', 'minute', 'hour', 'day_of_month', 'month', 'day_of_week', 'command', 'source_file_modified', 'source_file'],
   services:   ['unit_name', 'unit_type', 'description', 'exec_start', 'run_user', 'service_type', 'restart', 'source_dir_type', 'source_file'],
+  rcscripts:  ['path', 'source_type', 'run_context', 'username', 'shell', 'interpreter', 'file_size', 'source_file_modified'],
 }
 
 const colPrefs = useColumnPrefs(COL_DEFAULTS)
@@ -424,6 +464,7 @@ function sysInfoValue(row) {
           :events="timelineStore.events"
           :total="timelineStore.total"
           :loading="timelineStore.loading"
+          :collection-id="collectionId"
           @load-more="loadMore"
         />
       </div>
@@ -507,7 +548,8 @@ function sysInfoValue(row) {
             <tbody>
               <tr v-for="row in sortedItems" :key="row.id"
                   class="group border-b border-tn-border"
-                  :class="artifactSelected.has(row.id) ? 'bg-tn-selection hover:bg-tn-selection-hover' : 'hover:bg-tn-raised/40'">
+                  :class="artifactSelected.has(row.id) ? 'bg-tn-selection hover:bg-tn-selection-hover' : 'hover:bg-tn-raised/40'"
+                  @contextmenu.prevent="openArtifactContextMenu(row, $event)">
                 <!-- Checkbox -->
                 <td class="sticky left-0 z-10 border-r border-tn-border px-2 py-1.5"
                     :class="artifactSelected.has(row.id) ? 'bg-tn-selection group-hover:bg-tn-selection-hover' : 'bg-tn-bg group-hover:bg-tn-raised/40'">
@@ -596,6 +638,25 @@ function sysInfoValue(row) {
       </div>
     </div>
   </div>
+
+  <!-- Context menu (artifact rows) -->
+  <ContextMenu
+    v-if="artifactContextMenu"
+    :items="artifactContextMenu.items"
+    :x="artifactContextMenu.x"
+    :y="artifactContextMenu.y"
+    @select="onArtifactContextMenuSelect"
+    @close="artifactContextMenu = null"
+  />
+
+  <!-- File preview modal -->
+  <FilePreviewModal
+    v-if="previewTarget"
+    :collection-id="collectionId"
+    :artifact-type="previewTarget.artifactType"
+    :path="previewTarget.path"
+    @close="previewTarget = null"
+  />
 </template>
 
 <style scoped>

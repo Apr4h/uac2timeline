@@ -14,7 +14,7 @@ const store = useTimelineStore()
 const tagsStore = useTagsStore()
 
 const isCollapsed = ref(false)
-const ALL_TYPES = ['processes', 'auth', 'cmdhistory', 'netconns', 'files', 'cron', 'services']
+const ALL_TYPES = ['processes', 'auth', 'cmdhistory', 'netconns', 'files', 'cron', 'services', 'rcscripts']
 
 const TAG_CHIP_CLASSES = {
   red:    'bg-red-900/60 text-red-300 border-red-700',

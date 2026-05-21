@@ -10,6 +10,7 @@ GET /api/collections/{id}/users
 """
 from __future__ import annotations
 
+import os
 import re
 from datetime import datetime
 from typing import Any, Optional
@@ -23,20 +24,20 @@ from backend.app.schemas import (
     TimelineEvent, TimelineResponse,
     PaginatedProcesses, PaginatedNetconns, PaginatedAuth,
     PaginatedCmdHistory, PaginatedUsers, PaginatedFiles, PaginatedCronJobs,
-    PaginatedSystemdServices,
+    PaginatedSystemdServices, PaginatedRcScripts,
     ProcessOut, NetworkConnectionOut, AuthenticationOut,
     CommandHistoryOut, UserOut, FileOut, SystemInfoOut, CronJobOut,
-    SystemdServiceOut,
+    SystemdServiceOut, RcScriptOut, FilePreviewResponse,
 )
 from uac_parser.models import (
     UACCollection, Process, NetworkConnection,
     Authentication, CommandHistory, User, File, SystemInfo, CronJob,
-    SystemdService,
+    SystemdService, RcScript,
 )
 
 router = APIRouter()
 
-ALL_TYPES = {"processes", "netconns", "auth", "cmdhistory", "files", "cron", "services"}
+ALL_TYPES = {"processes", "netconns", "auth", "cmdhistory", "files", "cron", "services", "rcscripts"}
 
 
 def _require_collection(collection_id: int, db: Session) -> UACCollection:
@@ -247,6 +248,29 @@ def get_timeline(
                 details=_obj_to_dict(svc),
             ))
 
+    # RC scripts — use source_file_modified as the timeline timestamp
+    if "rcscripts" in requested_types:
+        q = db.query(RcScript).filter_by(collection_id=collection_id)
+        if start:
+            q = q.filter(RcScript.source_file_modified >= start)
+        if end:
+            q = q.filter(RcScript.source_file_modified <= end)
+        q = _filter_by_tags(q, RcScript, "rcscripts", db, collection_id, tag_ids)
+        for rc in q.all():
+            if rc.source_file_modified is None and (start or end):
+                continue
+            user_part = f"{rc.username}: " if rc.username else ""
+            summary = f"[{rc.source_type or 'rcscript'}] {user_part}{rc.path or ''}"
+            if not _apply_filter(summary, filter, regex):
+                continue
+            events.append(TimelineEvent(
+                timestamp=rc.source_file_modified,
+                artifact_type="rcscripts",
+                id=rc.id,
+                summary=summary,
+                details=_obj_to_dict(rc),
+            ))
+
     # Filesystem events — each file contributes up to 4 events (one per timestamp type)
     if "files" in requested_types:
         _TS_LABELS = [("mtime", "M"), ("atime", "A"), ("ctime", "C"), ("crtime", "B")]
@@ -449,6 +473,90 @@ def get_systemd(
         )]
     total = len(rows)
     return PaginatedSystemdServices(total=total, offset=offset, limit=limit, items=rows[offset: offset + limit])
+
+
+@router.get("/collections/{collection_id}/rcscripts", response_model=PaginatedRcScripts)
+def get_rcscripts(
+    collection_id: int,
+    filter: Optional[str] = Query(default=None, alias="filter"),
+    regex: Optional[str] = Query(default=None),
+    tag_ids: Optional[str] = Query(default=None),
+    limit: int = Query(default=500, ge=1, le=5000),
+    offset: int = Query(default=0, ge=0),
+    db: Session = Depends(get_db),
+):
+    _require_collection(collection_id, db)
+    q = db.query(RcScript).filter_by(collection_id=collection_id)
+    q = _filter_by_tags(q, RcScript, "rcscripts", db, collection_id, tag_ids)
+    rows = q.all()
+    if filter or regex:
+        rows = [r for r in rows if _apply_filter(
+            f"{r.path or ''} {r.source_type or ''} {r.run_context or ''} {r.username or ''} {r.shell or ''}",
+            filter, regex,
+        )]
+    total = len(rows)
+    return PaginatedRcScripts(total=total, offset=offset, limit=limit, items=rows[offset: offset + limit])
+
+
+_PREVIEW_SIZE_CAP = 512 * 1024  # 512 KB
+
+
+@router.get("/collections/{collection_id}/file-preview", response_model=FilePreviewResponse)
+def get_file_preview(
+    collection_id: int,
+    path: str = Query(..., description="Logical filesystem path, e.g. /etc/rc.local"),
+    db: Session = Depends(get_db),
+):
+    _require_collection(collection_id, db)
+
+    from backend.app.models import ProcessingJob
+    pjob = (
+        db.query(ProcessingJob)
+        .filter_by(collection_id=collection_id)
+        .order_by(ProcessingJob.created_at.desc())
+        .first()
+    )
+    if not pjob or not pjob.upload_path:
+        raise HTTPException(status_code=404, detail="Collection files not available")
+
+    root_dir = os.path.join(pjob.upload_path, "[root]")
+    # Strip leading slash so os.path.join doesn't treat it as absolute
+    rel_path = path.lstrip("/")
+    candidate = os.path.realpath(os.path.join(root_dir, rel_path))
+    # Path traversal guard
+    if not candidate.startswith(os.path.realpath(root_dir) + os.sep):
+        raise HTTPException(status_code=400, detail="Invalid path")
+
+    if not os.path.isfile(candidate):
+        return FilePreviewResponse(path=path, available=False)
+
+    size = os.path.getsize(candidate)
+
+    # Binary detection
+    try:
+        with open(candidate, "rb") as f:
+            chunk = f.read(512)
+        if b"\x00" in chunk:
+            return FilePreviewResponse(path=path, available=True, binary=True, size=size)
+    except OSError:
+        return FilePreviewResponse(path=path, available=False)
+
+    # Text read with size cap
+    truncated = size > _PREVIEW_SIZE_CAP
+    try:
+        with open(candidate, "r", errors="replace") as f:
+            content = f.read(_PREVIEW_SIZE_CAP)
+    except OSError:
+        return FilePreviewResponse(path=path, available=False)
+
+    return FilePreviewResponse(
+        path=path,
+        available=True,
+        binary=False,
+        content=content,
+        size=size,
+        truncated=truncated,
+    )
 
 
 @router.get("/collections/{collection_id}/system-info", response_model=SystemInfoOut)
