@@ -14,6 +14,7 @@ export const useTimelineStore = defineStore('timeline', () => {
   const events = ref([])
   const total = ref(0)
   const loading = ref(false)
+  const loadingMore = ref(false)
   const error = ref(null)
 
   const filters = reactive({
@@ -52,6 +53,28 @@ export const useTimelineStore = defineStore('timeline', () => {
     }
   }
 
+  async function appendTimeline(collectionId) {
+    loadingMore.value = true
+    try {
+      filters.offset += filters.limit
+      const params = {
+        limit: filters.limit,
+        offset: filters.offset,
+      }
+      if (filters.start) params.start = normaliseDateParam(filters.start)
+      if (filters.end) params.end = normaliseDateParam(filters.end)
+      if (filters.types.length < ALL_ARTIFACT_TYPES.length) params.types = filters.types.join(',')
+      if (filters.filterStr) params.filter = filters.filterStr
+      if (filters.regex) params.regex = filters.regex
+      if (filters.tagIds.length) params.tag_ids = filters.tagIds.join(',')
+
+      const { data } = await axios.get(`/api/collections/${collectionId}/timeline`, { params })
+      events.value.push(...data.events)
+    } finally {
+      loadingMore.value = false
+    }
+  }
+
   async function fetchArtifact(collectionId, type, extraParams = {}) {
     const params = {
       limit: filters.limit,
@@ -75,5 +98,5 @@ export const useTimelineStore = defineStore('timeline', () => {
     filters.offset = 0
   }
 
-  return { events, total, loading, error, filters, fetchTimeline, fetchArtifact, resetFilters }
+  return { events, total, loading, loadingMore, error, filters, fetchTimeline, appendTimeline, fetchArtifact, resetFilters }
 })

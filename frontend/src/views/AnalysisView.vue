@@ -118,18 +118,7 @@ watch(activeTab, () => {
 
 async function loadMore() {
   if (activeTab.value === 'timeline') {
-    timelineStore.filters.offset += timelineStore.filters.limit
-    const { data } = await axios.get(`/api/collections/${collectionId.value}/timeline`, {
-      params: {
-        limit: timelineStore.filters.limit,
-        offset: timelineStore.filters.offset,
-        ...(timelineStore.filters.start && { start: timelineStore.filters.start }),
-        ...(timelineStore.filters.end   && { end:   timelineStore.filters.end   }),
-        ...(timelineStore.filters.filterStr && { filter: timelineStore.filters.filterStr }),
-        ...(timelineStore.filters.regex && { regex:  timelineStore.filters.regex }),
-      }
-    })
-    timelineStore.events.push(...data.events)
+    await timelineStore.appendTimeline(collectionId.value)
   }
 }
 
@@ -571,6 +560,7 @@ function sysInfoValue(row) {
           :events="timelineStore.events"
           :total="timelineStore.total"
           :loading="timelineStore.loading"
+          :loading-more="timelineStore.loadingMore"
           :collection-id="collectionId"
           @load-more="loadMore"
         />

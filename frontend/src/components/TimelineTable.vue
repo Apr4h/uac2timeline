@@ -13,6 +13,7 @@ const props = defineProps({
   events: Array,
   total: Number,
   loading: Boolean,
+  loadingMore: Boolean,
   collectionId: Number,
 })
 const emit = defineEmits(['loadMore'])
@@ -563,9 +564,17 @@ async function onNoteDeleteConfirm() {
       <button
         v-if="events?.length < total"
         @click="emit('loadMore')"
-        class="px-3 py-1 rounded bg-tn-hover hover:bg-tn-border-strong text-tn-fg-dim"
+        :disabled="loadingMore"
+        :class="[
+          'px-3 py-1 rounded text-xs transition-colors flex items-center gap-1.5',
+          loadingMore ? 'bg-tn-raised text-tn-muted cursor-default' : 'bg-tn-hover hover:bg-tn-border-strong text-tn-fg-dim',
+        ]"
       >
-        Load more
+        <span
+          v-if="loadingMore"
+          class="w-3 h-3 rounded-full border-2 border-tn-muted border-t-tn-accent animate-spin"
+        />
+        {{ loadingMore ? 'Loading…' : 'Load more' }}
       </button>
     </div>
 
