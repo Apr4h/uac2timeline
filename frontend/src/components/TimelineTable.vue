@@ -195,6 +195,11 @@ function loadColWidths() {
 
 const colWidths = ref(loadColWidths())
 
+const tableWidth = computed(() => {
+  const w = colWidths.value
+  return 32 + w.timestamp + w.type + w.summary + w.note + w.tags  // 32 = checkbox (2rem)
+})
+
 function saveColWidths() {
   try { localStorage.setItem(COL_WIDTHS_KEY, JSON.stringify(colWidths.value)) } catch {}
 }
@@ -390,7 +395,7 @@ async function onNoteDeleteConfirm() {
 <template>
   <div class="flex flex-col h-full">
     <div class="overflow-auto flex-1">
-      <table class="min-w-full text-sm border-collapse table-fixed">
+      <table class="min-w-full text-sm border-collapse table-fixed" :style="{ width: tableWidth + 'px' }">
         <colgroup>
           <col style="width: 2rem" />
           <col :style="{ width: `${colWidths.timestamp}px` }" />

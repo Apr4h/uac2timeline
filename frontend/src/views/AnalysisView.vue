@@ -384,6 +384,11 @@ const colPrefs = useColumnPrefs(COL_DEFAULTS)
 const activeCols = computed(() => colPrefs.getOrder(activeTab.value))
 const colWidths  = computed(() => colPrefs.getWidths(activeTab.value))
 
+const tableWidth = computed(() => {
+  const fixedW = 32 + 192 + 192  // checkbox (2rem) + note (12rem) + tags (12rem)
+  return fixedW + activeCols.value.reduce((sum, col) => sum + (colWidths.value[col] ?? 160), 0)
+})
+
 // Column drag-to-reorder state
 const dragFromIdx = ref(null)
 const dragOverIdx = ref(null)
@@ -593,7 +598,7 @@ function sysInfoValue(row) {
         <div class="flex-1 overflow-auto">
           <div v-if="tabLoading" class="p-8 text-center text-tn-muted">Loading…</div>
           <div v-else-if="!tabData.items?.length" class="p-8 text-center text-tn-muted">No records.</div>
-          <table v-else class="min-w-full text-xs border-collapse table-fixed">
+          <table v-else class="min-w-full text-xs border-collapse table-fixed" :style="{ width: tableWidth + 'px' }">
             <colgroup>
               <col style="width: 2rem" />
               <col
