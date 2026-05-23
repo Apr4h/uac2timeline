@@ -130,9 +130,12 @@ def parse_authentications(uac_collection_path: str, threshold: int = 75):
             # Process all matches (no threshold check for authentication logs)
             if match_count > 0:
                 logging.info(f"Pattern {pattern_name} matched {match_count}/{total_lines} lines ({(match_count/total_lines)*100:.1f}%) in {filename}. Processing results.")
-                
+
+                # lastb files contain failed login attempts; last files contain successes
+                is_failure = 'lastb' in filename.lower()
+
                 for match in current_matches:
-                    auth_obj = create_authentication_from_match(match, pattern_name)
+                    auth_obj = create_authentication_from_match(match, pattern_name, is_failure=is_failure)
                     if auth_obj:
                         authentications.append(auth_obj)
             else:
@@ -158,33 +161,40 @@ def parse_authentications(uac_collection_path: str, threshold: int = 75):
     return deduplicated_list
 
 
-def create_authentication_from_match(match: dict, pattern_name: str) -> Authentication:
+def create_authentication_from_match(match: dict, pattern_name: str, is_failure: bool = False) -> Authentication:
     """
     Create an Authentication object from a grok match.
-    
+
     Args:
         match: Dictionary of matched fields from grok pattern
         pattern_name: Name of the pattern that matched
-        
+        is_failure: True if this event came from a failure log (e.g. lastb)
+
     Returns:
         Authentication object or None if creation fails
     """
     try:
+        # Filter out the "wtmp begins ..." / "btmp begins ..." footer lines that
+        # LAST_LOGIN can false-positively match (username=wtmp/btmp, tty=begins).
+        if pattern_name == "LAST_LOGIN" and match.get('tty') == 'begins':
+            return None
+
         # Parse timestamp using utility function
         auth_time = parse_timestamp_from_match(match)
-        
+
         # Determine authentication method and result based on pattern
         method = None
         result = None
         source = None
         destination = None
         uid = None
-        
+
         if pattern_name == "LAST_LOGIN":
             method = "console"
-            result = "success"
-            source = match.get('tty')
-            
+            result = "failure" if is_failure else "success"
+            # source IP present on Linux SSH sessions; fall back to tty for console/local logins
+            source = match.get('source') or match.get('tty')
+
         elif pattern_name == "SSH_AUTH_SUCCESS":
             method = match.get('auth_method', 'ssh')
             result = "success"

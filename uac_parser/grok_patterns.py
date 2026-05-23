@@ -51,9 +51,25 @@ network_patterns = {
 
 
 auth_patterns = {
-    # macOS/BSD last command output
-    # Format: username tty Day Month DD HH:MM - HH:MM (duration) or "still logged in"
-    "LAST_LOGIN": "^%{USERNAME:username}\\s+%{WORD:tty}\\s+%{DAY:day}\\s+%{MONTH:month}\\s+%{MONTHDAY:monthday}\\s+%{HOUR:hour}:%{MINUTE:minute}(?::%{SECOND:second})?\\s+(?:still logged in|.*)$",
+    # last / lastb output — Linux and macOS/BSD
+    #
+    # Linux SSH:  elk_user  pts/0   192.168.1.1   Thu May 21 14:15   still logged in
+    # macOS TTY:  adam      ttys005               Sat Nov 22 16:58   still logged in
+    # macOS bare: reboot    time                  Sun Nov 16 19:25
+    # Footer:     wtmp begins Sat Apr 11 16:49:50 2026   ← filtered in parser
+    #
+    # Key differences from the old pattern:
+    #   %{NOTSPACE:tty}      — handles pts/0 (slash) as well as ttys005, console, time
+    #   (?:\s+%{IP:source})? — optional source IP present on Linux SSH sessions, absent on macOS
+    #   (?:\s+.*)?$          — trailing content (duration, "still logged in") is optional;
+    #                          macOS reboot/shutdown lines end bare at the timestamp
+    "LAST_LOGIN": (
+        r"^%{NOTSPACE:username}\s+%{NOTSPACE:tty}"
+        r"(?:\s+%{IP:source})?"
+        r"\s+%{DAY:day}\s+%{MONTH:month}\s+%{MONTHDAY:monthday}"
+        r"\s+%{HOUR:hour}:%{MINUTE:minute}(?::%{SECOND:second})?"
+        r"(?:\s+.*)?$"
+    ),
     
     "SSH_AUTH_SUCCESS": "^%{TIMESTAMP_ISO8601:timestamp}\.%{INT}(?:%{ISO8601_TIMEZONE:tz})\\s+%{DATA:hostname}\\s+%{DATA:provider}\\[%{NUMBER:pid}\\]:\\s+Accepted\\s+%{DATA:auth_method}\\s+for\\s+%{DATA:user}\\s+from\\s+%{IPORHOST:source}\\s+port\\s+%{INT}\\s%{DATA}(\\s+%{DATA:ssh_algo}\\s+%{DATA:fingerprint_algo}:%{DATA:fingerprint})?$"
 }
