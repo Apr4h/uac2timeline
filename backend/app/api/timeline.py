@@ -12,10 +12,12 @@ from __future__ import annotations
 
 import os
 import re
+from collections import defaultdict
 from datetime import datetime
 from typing import Any, Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Query
+from sqlalchemy import union_all as sa_union_all, select, literal, func, case as sa_case, null
 from sqlalchemy.orm import Session
 
 from backend.app.database import get_db
@@ -122,6 +124,292 @@ def _filter_by_tags(query, model, artifact_type: str, db: Session, collection_id
 
 # ── Unified timeline ──────────────────────────────────────────────────────────
 
+def _get_timeline_python(
+    collection_id: int,
+    start: Optional[datetime],
+    end: Optional[datetime],
+    requested_types: set,
+    filter_str: Optional[str],
+    regex: Optional[str],
+    tag_ids: Optional[str],
+    limit: int,
+    offset: int,
+    db: Session,
+) -> "TimelineResponse":
+    """Slow path: Python-level sort+filter for text/regex queries."""
+    events: list[TimelineEvent] = []
+
+    if "processes" in requested_types:
+        q = db.query(Process).filter_by(collection_id=collection_id)
+        if start: q = q.filter(Process.started >= start)
+        if end:   q = q.filter(Process.started <= end)
+        q = _filter_by_tags(q, Process, "processes", db, collection_id, tag_ids)
+        for p in q.all():
+            summary = _process_summary(p)
+            if not _apply_filter(summary, filter_str, regex): continue
+            events.append(TimelineEvent(timestamp=p.started, artifact_type="processes", id=p.id, summary=summary, details=_obj_to_dict(p)))
+
+    if "auth" in requested_types:
+        q = db.query(Authentication).filter_by(collection_id=collection_id)
+        if start: q = q.filter(Authentication.time >= start)
+        if end:   q = q.filter(Authentication.time <= end)
+        q = _filter_by_tags(q, Authentication, "auth", db, collection_id, tag_ids)
+        for a in q.all():
+            summary = _auth_summary(a)
+            if not _apply_filter(summary, filter_str, regex): continue
+            events.append(TimelineEvent(timestamp=a.time, artifact_type="auth", id=a.id, summary=summary, details=_obj_to_dict(a)))
+
+    if "cmdhistory" in requested_types:
+        q = db.query(CommandHistory).filter_by(collection_id=collection_id)
+        if start: q = q.filter(CommandHistory.time >= start)
+        if end:   q = q.filter(CommandHistory.time <= end)
+        q = _filter_by_tags(q, CommandHistory, "cmdhistory", db, collection_id, tag_ids)
+        for c in q.all():
+            summary = _cmdhistory_summary(c)
+            if not _apply_filter(summary, filter_str, regex): continue
+            events.append(TimelineEvent(timestamp=c.time, artifact_type="cmdhistory", id=c.id, summary=summary, details=_obj_to_dict(c)))
+
+    if "cron" in requested_types:
+        q = db.query(CronJob).filter_by(collection_id=collection_id)
+        if start: q = q.filter(CronJob.source_file_modified >= start)
+        if end:   q = q.filter(CronJob.source_file_modified <= end)
+        q = _filter_by_tags(q, CronJob, "cron", db, collection_id, tag_ids)
+        for cj in q.all():
+            if cj.source_file_modified is None and (start or end): continue
+            user = f"{cj.username}: " if cj.username else ""
+            summary = f"[{cj.source_type or 'cron'}] {user}{cj.command or ''}"
+            if not _apply_filter(summary, filter_str, regex): continue
+            events.append(TimelineEvent(timestamp=cj.source_file_modified, artifact_type="cron", id=cj.id, summary=summary, details=_obj_to_dict(cj)))
+
+    if "services" in requested_types:
+        q = db.query(SystemdService).filter_by(collection_id=collection_id)
+        if start: q = q.filter(SystemdService.source_file_modified >= start)
+        if end:   q = q.filter(SystemdService.source_file_modified <= end)
+        q = _filter_by_tags(q, SystemdService, "services", db, collection_id, tag_ids)
+        for svc in q.all():
+            if svc.source_file_modified is None and (start or end): continue
+            label = f"{svc.unit_name or ''}.{svc.unit_type or ''}".strip('.')
+            detail = svc.description or svc.exec_start or ''
+            summary = f"[{svc.source_dir_type or 'services'}] {label}: {detail}".rstrip(': ')
+            if not _apply_filter(summary, filter_str, regex): continue
+            events.append(TimelineEvent(timestamp=svc.source_file_modified, artifact_type="services", id=svc.id, summary=summary, details=_obj_to_dict(svc)))
+
+    if "rcscripts" in requested_types:
+        q = db.query(RcScript).filter_by(collection_id=collection_id)
+        if start: q = q.filter(RcScript.source_file_modified >= start)
+        if end:   q = q.filter(RcScript.source_file_modified <= end)
+        q = _filter_by_tags(q, RcScript, "rcscripts", db, collection_id, tag_ids)
+        for rc in q.all():
+            if rc.source_file_modified is None and (start or end): continue
+            user_part = f"{rc.username}: " if rc.username else ""
+            summary = f"[{rc.source_type or 'rcscript'}] {user_part}{rc.path or ''}"
+            if not _apply_filter(summary, filter_str, regex): continue
+            events.append(TimelineEvent(timestamp=rc.source_file_modified, artifact_type="rcscripts", id=rc.id, summary=summary, details=_obj_to_dict(rc)))
+
+    if "files" in requested_types:
+        q = db.query(File).filter_by(collection_id=collection_id)
+        q = _filter_by_tags(q, File, "files", db, collection_id, tag_ids)
+        for f in q.all():
+            for attr, lbl in [("mtime","M"),("atime","A"),("ctime","C"),("crtime","B")]:
+                ts = getattr(f, attr)
+                if ts is None or (start and ts < start) or (end and ts > end): continue
+                summary = f"[{lbl}] {f.path or ''}"
+                if not _apply_filter(summary, filter_str, regex): continue
+                events.append(TimelineEvent(timestamp=ts, artifact_type="files", id=f.id, summary=summary, details=_obj_to_dict(f)))
+
+    if "netconns" in requested_types and not start and not end:
+        q = db.query(NetworkConnection).filter_by(collection_id=collection_id)
+        q = _filter_by_tags(q, NetworkConnection, "netconns", db, collection_id, tag_ids)
+        for nc in q.all():
+            summary = f"{nc.proto} {nc.local_addr}:{nc.local_port} → {nc.remote_addr}:{nc.remote_port} [{nc.state}]"
+            if not _apply_filter(summary, filter_str, regex): continue
+            events.append(TimelineEvent(timestamp=None, artifact_type="netconns", id=nc.id, summary=summary, details=_obj_to_dict(nc)))
+
+    events.sort(key=lambda e: (e.timestamp is None, e.timestamp or datetime.min))
+    total = len(events)
+    return TimelineResponse(total=total, offset=offset, limit=limit, events=events[offset: offset + limit])
+
+
+def _get_timeline_sql(
+    collection_id: int,
+    start: Optional[datetime],
+    end: Optional[datetime],
+    requested_types: set,
+    tag_ids: Optional[str],
+    limit: int,
+    offset: int,
+    db: Session,
+) -> "TimelineResponse":
+    """Fast path: SQL UNION ALL + ORDER BY + LIMIT/OFFSET, hydrate only the page."""
+
+    def _tag_sub(artifact_type):
+        if not tag_ids:
+            return None
+        ids = [int(x) for x in tag_ids.split(',') if x.strip().isdigit()]
+        if not ids:
+            return None
+        return (
+            db.query(Tagging.artifact_id)
+              .filter(Tagging.collection_id == collection_id,
+                      Tagging.artifact_type == artifact_type,
+                      Tagging.tag_id.in_(ids))
+              .subquery()
+        )
+
+    subqueries = []
+
+    # Types with a single timestamp column
+    _SIMPLE = [
+        (Process,        "started",              "processes"),
+        (Authentication, "time",                 "auth"),
+        (CommandHistory, "time",                 "cmdhistory"),
+        (CronJob,        "source_file_modified", "cron"),
+        (SystemdService, "source_file_modified", "services"),
+        (RcScript,       "source_file_modified", "rcscripts"),
+    ]
+    for model, ts_attr, atype in _SIMPLE:
+        if atype not in requested_types:
+            continue
+        ts_col = getattr(model, ts_attr)
+        q = select(model.id.label("eid"), literal(atype).label("atype"), ts_col.label("ts")).where(
+            model.collection_id == collection_id
+        )
+        if start: q = q.where(ts_col >= start)
+        if end:   q = q.where(ts_col <= end)
+        sub = _tag_sub(atype)
+        if sub is not None: q = q.where(model.id.in_(sub))
+        subqueries.append(q)
+
+    # Files: up to 4 events per row (one per timestamp attribute)
+    if "files" in requested_types:
+        file_sub = _tag_sub("files")
+        for attr, file_atype in [("mtime","files_M"),("atime","files_A"),("ctime","files_C"),("crtime","files_B")]:
+            ts_col = getattr(File, attr)
+            q = select(File.id.label("eid"), literal(file_atype).label("atype"), ts_col.label("ts")).where(
+                File.collection_id == collection_id, ts_col.isnot(None)
+            )
+            if start: q = q.where(ts_col >= start)
+            if end:   q = q.where(ts_col <= end)
+            if file_sub is not None: q = q.where(File.id.in_(file_sub))
+            subqueries.append(q)
+
+    # Netconns: no timestamp, omit when a date filter is active
+    if "netconns" in requested_types and not start and not end:
+        nc_sub = _tag_sub("netconns")
+        q = select(
+            NetworkConnection.id.label("eid"),
+            literal("netconns").label("atype"),
+            null().label("ts"),
+        ).where(NetworkConnection.collection_id == collection_id)
+        if nc_sub is not None: q = q.where(NetworkConnection.id.in_(nc_sub))
+        subqueries.append(q)
+
+    if not subqueries:
+        return TimelineResponse(total=0, offset=offset, limit=limit, events=[])
+
+    combined = sa_union_all(*subqueries).subquery("combined")
+
+    total = db.execute(select(func.count()).select_from(combined)).scalar() or 0
+
+    # Nulls-last sort: events with real timestamps first (ascending), then timestamp-less
+    page_rows = db.execute(
+        select(combined.c.eid, combined.c.atype, combined.c.ts)
+        .order_by(
+            sa_case((combined.c.ts.is_(None), 1), else_=0),
+            combined.c.ts,
+        )
+        .limit(limit)
+        .offset(offset)
+    ).fetchall()
+
+    if not page_rows:
+        return TimelineResponse(total=total, offset=offset, limit=limit, events=[])
+
+    # Group IDs by type so we can batch-fetch only the rows on this page
+    ids_by_atype: dict[str, list[int]] = defaultdict(list)
+    for row in page_rows:
+        ids_by_atype[row.atype].append(row.eid)
+
+    _FILE_ATYPES = {"files_M", "files_A", "files_C", "files_B"}
+    file_ids = set()
+    for fat in _FILE_ATYPES:
+        file_ids.update(ids_by_atype.get(fat, []))
+
+    objs: dict[tuple, Any] = {}
+    if ids_by_atype.get("processes"):
+        for p in db.query(Process).filter(Process.id.in_(ids_by_atype["processes"])):
+            objs[("processes", p.id)] = p
+    if ids_by_atype.get("auth"):
+        for a in db.query(Authentication).filter(Authentication.id.in_(ids_by_atype["auth"])):
+            objs[("auth", a.id)] = a
+    if ids_by_atype.get("cmdhistory"):
+        for c in db.query(CommandHistory).filter(CommandHistory.id.in_(ids_by_atype["cmdhistory"])):
+            objs[("cmdhistory", c.id)] = c
+    if ids_by_atype.get("cron"):
+        for cj in db.query(CronJob).filter(CronJob.id.in_(ids_by_atype["cron"])):
+            objs[("cron", cj.id)] = cj
+    if ids_by_atype.get("services"):
+        for svc in db.query(SystemdService).filter(SystemdService.id.in_(ids_by_atype["services"])):
+            objs[("services", svc.id)] = svc
+    if ids_by_atype.get("rcscripts"):
+        for rc in db.query(RcScript).filter(RcScript.id.in_(ids_by_atype["rcscripts"])):
+            objs[("rcscripts", rc.id)] = rc
+    if file_ids:
+        for f in db.query(File).filter(File.id.in_(file_ids)):
+            objs[("file", f.id)] = f
+    if ids_by_atype.get("netconns"):
+        for nc in db.query(NetworkConnection).filter(NetworkConnection.id.in_(ids_by_atype["netconns"])):
+            objs[("netconns", nc.id)] = nc
+
+    _FILE_ATTR = {
+        "files_M": ("M", "mtime"),
+        "files_A": ("A", "atime"),
+        "files_C": ("C", "ctime"),
+        "files_B": ("B", "crtime"),
+    }
+
+    events: list[TimelineEvent] = []
+    for row in page_rows:
+        atype, eid = row.atype, row.eid
+        if atype == "processes":
+            p = objs.get(("processes", eid))
+            if p: events.append(TimelineEvent(timestamp=p.started, artifact_type="processes", id=p.id, summary=_process_summary(p), details=_obj_to_dict(p)))
+        elif atype == "auth":
+            a = objs.get(("auth", eid))
+            if a: events.append(TimelineEvent(timestamp=a.time, artifact_type="auth", id=a.id, summary=_auth_summary(a), details=_obj_to_dict(a)))
+        elif atype == "cmdhistory":
+            c = objs.get(("cmdhistory", eid))
+            if c: events.append(TimelineEvent(timestamp=c.time, artifact_type="cmdhistory", id=c.id, summary=_cmdhistory_summary(c), details=_obj_to_dict(c)))
+        elif atype == "cron":
+            cj = objs.get(("cron", eid))
+            if cj:
+                u = f"{cj.username}: " if cj.username else ""
+                events.append(TimelineEvent(timestamp=cj.source_file_modified, artifact_type="cron", id=cj.id, summary=f"[{cj.source_type or 'cron'}] {u}{cj.command or ''}", details=_obj_to_dict(cj)))
+        elif atype == "services":
+            svc = objs.get(("services", eid))
+            if svc:
+                lbl = f"{svc.unit_name or ''}.{svc.unit_type or ''}".strip('.')
+                detail = svc.description or svc.exec_start or ''
+                events.append(TimelineEvent(timestamp=svc.source_file_modified, artifact_type="services", id=svc.id, summary=f"[{svc.source_dir_type or 'services'}] {lbl}: {detail}".rstrip(': '), details=_obj_to_dict(svc)))
+        elif atype == "rcscripts":
+            rc = objs.get(("rcscripts", eid))
+            if rc:
+                user_part = f"{rc.username}: " if rc.username else ""
+                events.append(TimelineEvent(timestamp=rc.source_file_modified, artifact_type="rcscripts", id=rc.id, summary=f"[{rc.source_type or 'rcscript'}] {user_part}{rc.path or ''}", details=_obj_to_dict(rc)))
+        elif atype in _FILE_ATTR:
+            lbl, attr = _FILE_ATTR[atype]
+            f = objs.get(("file", eid))
+            if f:
+                ts = getattr(f, attr)
+                events.append(TimelineEvent(timestamp=ts, artifact_type="files", id=f.id, summary=f"[{lbl}] {f.path or ''}", details=_obj_to_dict(f)))
+        elif atype == "netconns":
+            nc = objs.get(("netconns", eid))
+            if nc:
+                events.append(TimelineEvent(timestamp=None, artifact_type="netconns", id=nc.id, summary=f"{nc.proto} {nc.local_addr}:{nc.local_port} → {nc.remote_addr}:{nc.remote_port} [{nc.state}]", details=_obj_to_dict(nc)))
+
+    return TimelineResponse(total=total, offset=offset, limit=limit, events=events)
+
+
 @router.get("/collections/{collection_id}/timeline", response_model=TimelineResponse)
 def get_timeline(
     collection_id: int,
@@ -136,189 +424,11 @@ def get_timeline(
     db: Session = Depends(get_db),
 ):
     _require_collection(collection_id, db)
-
     requested_types = {t.strip() for t in types.split(",")} if types else ALL_TYPES
 
-    events: list[TimelineEvent] = []
-
-    # Processes
-    if "processes" in requested_types:
-        q = db.query(Process).filter_by(collection_id=collection_id)
-        if start:
-            q = q.filter(Process.started >= start)
-        if end:
-            q = q.filter(Process.started <= end)
-        q = _filter_by_tags(q, Process, "processes", db, collection_id, tag_ids)
-        for p in q.all():
-            summary = _process_summary(p)
-            if not _apply_filter(summary, filter, regex):
-                continue
-            events.append(TimelineEvent(
-                timestamp=p.started,
-                artifact_type="processes",
-                id=p.id,
-                summary=summary,
-                details=_obj_to_dict(p),
-            ))
-
-    # Authentications
-    if "auth" in requested_types:
-        q = db.query(Authentication).filter_by(collection_id=collection_id)
-        if start:
-            q = q.filter(Authentication.time >= start)
-        if end:
-            q = q.filter(Authentication.time <= end)
-        q = _filter_by_tags(q, Authentication, "auth", db, collection_id, tag_ids)
-        for a in q.all():
-            summary = _auth_summary(a)
-            if not _apply_filter(summary, filter, regex):
-                continue
-            events.append(TimelineEvent(
-                timestamp=a.time,
-                artifact_type="auth",
-                id=a.id,
-                summary=summary,
-                details=_obj_to_dict(a),
-            ))
-
-    # Command history
-    if "cmdhistory" in requested_types:
-        q = db.query(CommandHistory).filter_by(collection_id=collection_id)
-        if start:
-            q = q.filter(CommandHistory.time >= start)
-        if end:
-            q = q.filter(CommandHistory.time <= end)
-        q = _filter_by_tags(q, CommandHistory, "cmdhistory", db, collection_id, tag_ids)
-        for c in q.all():
-            summary = _cmdhistory_summary(c)
-            if not _apply_filter(summary, filter, regex):
-                continue
-            events.append(TimelineEvent(
-                timestamp=c.time,
-                artifact_type="cmdhistory",
-                id=c.id,
-                summary=summary,
-                details=_obj_to_dict(c),
-            ))
-
-    # Cron jobs — use source_file_modified as the timeline timestamp
-    if "cron" in requested_types:
-        q = db.query(CronJob).filter_by(collection_id=collection_id)
-        if start:
-            q = q.filter(CronJob.source_file_modified >= start)
-        if end:
-            q = q.filter(CronJob.source_file_modified <= end)
-        q = _filter_by_tags(q, CronJob, "cron", db, collection_id, tag_ids)
-        for cj in q.all():
-            if cj.source_file_modified is None and (start or end):
-                continue
-            user = f"{cj.username}: " if cj.username else ""
-            summary = f"[{cj.source_type or 'cron'}] {user}{cj.command or ''}"
-            if not _apply_filter(summary, filter, regex):
-                continue
-            events.append(TimelineEvent(
-                timestamp=cj.source_file_modified,
-                artifact_type="cron",
-                id=cj.id,
-                summary=summary,
-                details=_obj_to_dict(cj),
-            ))
-
-    # Systemd units — use source_file_modified as the timeline timestamp
-    if "services" in requested_types:
-        q = db.query(SystemdService).filter_by(collection_id=collection_id)
-        if start:
-            q = q.filter(SystemdService.source_file_modified >= start)
-        if end:
-            q = q.filter(SystemdService.source_file_modified <= end)
-        q = _filter_by_tags(q, SystemdService, "services", db, collection_id, tag_ids)
-        for svc in q.all():
-            if svc.source_file_modified is None and (start or end):
-                continue
-            label = f"{svc.unit_name or ''}.{svc.unit_type or ''}".strip('.')
-            detail = svc.description or svc.exec_start or ''
-            summary = f"[{svc.source_dir_type or 'services'}] {label}: {detail}".rstrip(': ')
-            if not _apply_filter(summary, filter, regex):
-                continue
-            events.append(TimelineEvent(
-                timestamp=svc.source_file_modified,
-                artifact_type="services",
-                id=svc.id,
-                summary=summary,
-                details=_obj_to_dict(svc),
-            ))
-
-    # RC scripts — use source_file_modified as the timeline timestamp
-    if "rcscripts" in requested_types:
-        q = db.query(RcScript).filter_by(collection_id=collection_id)
-        if start:
-            q = q.filter(RcScript.source_file_modified >= start)
-        if end:
-            q = q.filter(RcScript.source_file_modified <= end)
-        q = _filter_by_tags(q, RcScript, "rcscripts", db, collection_id, tag_ids)
-        for rc in q.all():
-            if rc.source_file_modified is None and (start or end):
-                continue
-            user_part = f"{rc.username}: " if rc.username else ""
-            summary = f"[{rc.source_type or 'rcscript'}] {user_part}{rc.path or ''}"
-            if not _apply_filter(summary, filter, regex):
-                continue
-            events.append(TimelineEvent(
-                timestamp=rc.source_file_modified,
-                artifact_type="rcscripts",
-                id=rc.id,
-                summary=summary,
-                details=_obj_to_dict(rc),
-            ))
-
-    # Filesystem events — each file contributes up to 4 events (one per timestamp type)
-    if "files" in requested_types:
-        _TS_LABELS = [("mtime", "M"), ("atime", "A"), ("ctime", "C"), ("crtime", "B")]
-        q = db.query(File).filter_by(collection_id=collection_id)
-        q = _filter_by_tags(q, File, "files", db, collection_id, tag_ids)
-        for f in q.all():
-            for attr, label in _TS_LABELS:
-                ts = getattr(f, attr)
-                if ts is None:
-                    continue
-                if start and ts < start:
-                    continue
-                if end and ts > end:
-                    continue
-                summary = f"[{label}] {f.path or ''}"
-                if not _apply_filter(summary, filter, regex):
-                    continue
-                events.append(TimelineEvent(
-                    timestamp=ts,
-                    artifact_type="files",
-                    id=f.id,
-                    summary=summary,
-                    details=_obj_to_dict(f),
-                ))
-
-    # Network connections (no timestamp — include only when explicitly requested)
-    if "netconns" in requested_types and not start and not end:
-        q = db.query(NetworkConnection).filter_by(collection_id=collection_id)
-        q = _filter_by_tags(q, NetworkConnection, "netconns", db, collection_id, tag_ids)
-        for nc in q.all():
-            summary = f"{nc.proto} {nc.local_addr}:{nc.local_port} → {nc.remote_addr}:{nc.remote_port} [{nc.state}]"
-            if not _apply_filter(summary, filter, regex):
-                continue
-            events.append(TimelineEvent(
-                timestamp=None,
-                artifact_type="netconns",
-                id=nc.id,
-                summary=summary,
-                details=_obj_to_dict(nc),
-            ))
-
-    # Sort: events with timestamps first (ascending), then timestampless
-    events.sort(key=lambda e: (e.timestamp is None, e.timestamp or datetime.min))
-
-    total = len(events)
-    page = events[offset: offset + limit]
-
-    return TimelineResponse(total=total, offset=offset, limit=limit, events=page)
+    if filter or regex:
+        return _get_timeline_python(collection_id, start, end, requested_types, filter, regex, tag_ids, limit, offset, db)
+    return _get_timeline_sql(collection_id, start, end, requested_types, tag_ids, limit, offset, db)
 
 
 # ── Per-artifact endpoints ────────────────────────────────────────────────────

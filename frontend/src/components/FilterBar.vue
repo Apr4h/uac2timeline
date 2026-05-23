@@ -67,8 +67,16 @@ function toggleTag(id) {
   else store.filters.tagIds.splice(idx, 1)
 }
 
+const PAGE_SIZES = [10, 100, 500, 1000, 2000]
+
 function apply() {
   if (!canApply.value) return
+  store.filters.offset = 0
+  emit('apply')
+}
+
+function setLimit(n) {
+  store.filters.limit = n
   store.filters.offset = 0
   emit('apply')
 }
@@ -204,6 +212,20 @@ function loadEntry(entry) {
                     ? 'bg-tn-accent text-tn-bg'
                     : 'bg-tn-raised text-tn-fg-dim hover:bg-tn-hover']"
               >{{ t }}</button>
+            </div>
+          </div>
+
+          <div>
+            <label class="text-xs text-tn-fg-dim block mb-2">Page size</label>
+            <div class="flex gap-1.5">
+              <button
+                v-for="n in PAGE_SIZES" :key="n"
+                @click="setLimit(n)"
+                :class="['px-2.5 py-1 rounded text-xs font-mono transition-colors',
+                  store.filters.limit === n
+                    ? 'bg-tn-accent text-tn-bg'
+                    : 'bg-tn-raised text-tn-fg-dim hover:bg-tn-hover']"
+              >{{ n }}</button>
             </div>
           </div>
         </template>
