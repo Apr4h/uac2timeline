@@ -1,5 +1,5 @@
 <script setup>
-import { ref, computed, onUnmounted } from 'vue'
+import { ref, computed, watch, onUnmounted } from 'vue'
 import { useTagsStore } from '../stores/tags.js'
 import { useNotesStore } from '../stores/notes.js'
 import TagBadge from './TagBadge.vue'
@@ -236,6 +236,29 @@ function onColResizeUp() {
 onUnmounted(() => {
   document.removeEventListener('mousemove', onColResizeMove)
   document.removeEventListener('mouseup',   onColResizeUp)
+  window.removeEventListener('keydown', _onTimelinePopoverKey)
+})
+
+// ── Cell value popover ────────────────────────────────────────────────────────
+const timelinePopover = ref(null) // { col, value, x, y }
+
+function openTimelinePopover(col, value, event) {
+  event.stopPropagation()
+  const rect = event.currentTarget.getBoundingClientRect()
+  const x = Math.min(rect.left, window.innerWidth - 464)
+  timelinePopover.value = { col, value: String(value ?? ''), x, y: rect.bottom + 4 }
+}
+
+async function copyTimelinePopoverValue() {
+  if (!timelinePopover.value?.value) return
+  try { await navigator.clipboard.writeText(timelinePopover.value.value) } catch {}
+}
+
+function _onTimelinePopoverKey(e) { if (e.key === 'Escape') timelinePopover.value = null }
+
+watch(timelinePopover, (val) => {
+  if (val) window.addEventListener('keydown', _onTimelinePopoverKey)
+  else window.removeEventListener('keydown', _onTimelinePopoverKey)
 })
 
 // ── File preview ──────────────────────────────────────────────────────────────
@@ -474,7 +497,21 @@ async function onNoteDeleteConfirm() {
                   {{ ev.artifact_type }}
                 </span>
               </td>
-              <td class="px-3 py-1.5 text-tn-fg font-mono text-xs truncate max-w-0">{{ ev.summary }}</td>
+              <td class="px-3 py-1.5 font-mono text-xs max-w-0 overflow-hidden group/cell">
+                <div class="flex items-center min-w-0 gap-1">
+                  <span class="truncate flex-1 min-w-0 text-tn-fg">{{ ev.summary }}</span>
+                  <button
+                    v-if="ev.summary"
+                    @click.stop="openTimelinePopover('summary', ev.summary, $event)"
+                    class="shrink-0 opacity-0 group-hover/cell:opacity-100 transition-opacity text-tn-muted hover:text-tn-fg"
+                    title="View full summary"
+                  >
+                    <svg class="w-3 h-3" viewBox="0 0 12 12" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
+                      <path d="M7.5 1.5h3v3m0-3L6 6M4.5 10.5h-3v-3"/>
+                    </svg>
+                  </button>
+                </div>
+              </td>
               <td class="px-3 py-1.5 max-w-0 overflow-hidden" @click.stop>
                 <span
                   v-if="notesStore.getNoteForRow(ev.artifact_type, ev.id)"
@@ -648,6 +685,28 @@ async function onNoteDeleteConfirm() {
       </div>
     </Transition>
   </div>
+
+  <!-- Cell value popover -->
+  <Teleport to="body">
+    <template v-if="timelinePopover">
+      <div class="fixed inset-0 z-40" @click="timelinePopover = null" />
+      <div
+        class="fixed z-50 bg-tn-surface border border-tn-border rounded-lg shadow-2xl w-96"
+        style="max-width: min(24rem, 90vw)"
+        :style="{ left: timelinePopover.x + 'px', top: timelinePopover.y + 'px' }"
+        @click.stop
+      >
+        <div class="flex items-center justify-between px-3 pt-2.5 pb-1.5 border-b border-tn-border">
+          <span class="text-xs text-tn-fg-dim font-mono">{{ timelinePopover.col }}</span>
+          <button @click="timelinePopover = null" class="text-tn-muted hover:text-tn-fg text-xs ml-4 leading-none">✕</button>
+        </div>
+        <div class="px-3 py-2.5 text-xs text-tn-fg font-mono break-all whitespace-pre-wrap max-h-64 overflow-y-auto select-text leading-relaxed">{{ timelinePopover.value }}</div>
+        <div class="px-3 pb-2.5">
+          <button @click="copyTimelinePopoverValue" class="text-xs text-tn-accent hover:text-tn-accent-hover transition-colors">Copy</button>
+        </div>
+      </div>
+    </template>
+  </Teleport>
 </template>
 
 <style scoped>

@@ -52,6 +52,38 @@ const tabData = ref({ items: [], total: 0 })
 const tabLoading = ref(false)
 const artifactLoadingMore = ref(false)
 
+// Row expansion (Option A)
+const expanded = ref(new Set())
+
+function toggleExpand(id) {
+  const next = new Set(expanded.value)
+  if (next.has(id)) next.delete(id)
+  else next.add(id)
+  expanded.value = next
+}
+
+// Cell value popover (Option C)
+const popover = ref(null) // { col, value, x, y }
+
+function openPopover(col, value, event) {
+  event.stopPropagation()
+  const rect = event.currentTarget.getBoundingClientRect()
+  const x = Math.min(rect.left, window.innerWidth - 464)
+  popover.value = { col, value: String(value ?? ''), x, y: rect.bottom + 4 }
+}
+
+async function copyPopoverValue() {
+  if (!popover.value?.value) return
+  try { await navigator.clipboard.writeText(popover.value.value) } catch {}
+}
+
+function _onPopoverKey(e) { if (e.key === 'Escape') popover.value = null }
+
+watch(popover, (val) => {
+  if (val) window.addEventListener('keydown', _onPopoverKey)
+  else window.removeEventListener('keydown', _onPopoverKey)
+})
+
 // Per-artifact sort state
 const sortCol = ref(null)
 const sortDir = ref('asc')
@@ -116,6 +148,8 @@ watch(activeTab, () => {
   artifactPickerRowId.value = null
   lastClickedArtifactId.value = null
   artifactLoadingMore.value = false
+  expanded.value = new Set()
+  popover.value = null
   loadTab()
 })
 
@@ -444,6 +478,7 @@ function onResizeUp() {
 onUnmounted(() => {
   document.removeEventListener('mousemove', onResizeMove)
   document.removeEventListener('mouseup',   onResizeUp)
+  window.removeEventListener('keydown', _onPopoverKey)
 })
 
 function fmtCell(val) {
@@ -657,61 +692,95 @@ function sysInfoValue(row) {
               </tr>
             </thead>
             <tbody>
-              <tr v-for="row in sortedItems" :key="row.id"
-                  class="group border-b border-tn-border"
-                  :class="artifactSelected.has(row.id) ? 'bg-tn-selection hover:bg-tn-selection-hover' : 'hover:bg-tn-raised/40'"
-                  @contextmenu.prevent="openArtifactContextMenu(row, $event)">
-                <!-- Checkbox -->
-                <td class="sticky left-0 z-10 border-r border-tn-border px-2 py-1.5"
-                    :class="artifactSelected.has(row.id) ? 'bg-tn-selection group-hover:bg-tn-selection-hover' : 'bg-tn-bg group-hover:bg-tn-raised/40'">
-                  <input
-                    type="checkbox"
-                    :checked="artifactSelected.has(row.id)"
-                    @mousedown="captureArtifactShift"
-                    @change="toggleArtifactSelect(row.id)"
-                    class="accent-tn-accent cursor-pointer"
-                  />
-                </td>
-                <td v-for="col in activeCols" :key="col"
-                    class="px-3 py-1.5 font-mono text-tn-fg-dim truncate max-w-0"
-                    :title="String(row[col] ?? '')">
-                  {{ fmtCell(row[col]) }}
-                </td>
-                <!-- Note cell -->
-                <td class="px-3 py-1.5 max-w-48" @click.stop>
-                  <span
-                    v-if="notesStore.getNoteForRow(activeTab, row.id)"
-                    class="text-xs text-tn-fg-dim font-mono truncate block max-w-full cursor-default"
-                    :title="notesStore.getNoteForRow(activeTab, row.id)?.content"
-                  >{{ notesStore.getNoteForRow(activeTab, row.id)?.content }}</span>
-                </td>
-                <!-- Tags cell -->
-                <td class="px-3 py-1.5 relative" @click.stop>
-                  <div class="flex items-center gap-1 flex-wrap">
-                    <TagBadge
-                      v-for="tag in tagsStore.getRowTags(activeTab, row.id)"
-                      :key="tag.id"
-                      :tag="tag"
-                      removable
-                      @remove="tagsStore.removeTag(tag.id, activeTab, [row.id])"
+              <template v-for="row in sortedItems" :key="row.id">
+                <!-- Data row -->
+                <tr
+                    class="group border-b border-tn-border cursor-pointer"
+                    :class="artifactSelected.has(row.id) ? 'bg-tn-selection hover:bg-tn-selection-hover' : 'hover:bg-tn-raised/40'"
+                    @click="toggleExpand(row.id)"
+                    @contextmenu.prevent="openArtifactContextMenu(row, $event)">
+                  <!-- Checkbox — stop propagation so checking doesn't toggle expansion -->
+                  <td class="sticky left-0 z-10 border-r border-tn-border px-2 py-1.5" @click.stop
+                      :class="artifactSelected.has(row.id) ? 'bg-tn-selection group-hover:bg-tn-selection-hover' : 'bg-tn-bg group-hover:bg-tn-raised/40'">
+                    <input
+                      type="checkbox"
+                      :checked="artifactSelected.has(row.id)"
+                      @mousedown="captureArtifactShift"
+                      @change="toggleArtifactSelect(row.id)"
+                      class="accent-tn-accent cursor-pointer"
                     />
-                    <button
-                      @click="openArtifactPicker(row.id, $event)"
-                      class="text-tn-muted hover:text-tn-fg-dim text-xs px-1 rounded hover:bg-tn-hover"
-                      title="Add tag"
-                    >+</button>
-                    <TagPicker
-                      v-if="artifactPickerRowId === row.id"
-                      :applied-ids="rowPickerApplied(row)"
-                      :partial-ids="new Set()"
-                      :anchor-rect="artifactPickerRect"
-                      @apply="onArtifactPickerApply"
-                      @remove="onArtifactPickerRemove"
-                      @close="closeArtifactPicker"
-                    />
-                  </div>
-                </td>
-              </tr>
+                  </td>
+                  <!-- Data cells: flex layout keeps popover button visible alongside truncated text -->
+                  <td v-for="col in activeCols" :key="col"
+                      class="px-3 py-1.5 font-mono text-tn-fg-dim max-w-0 overflow-hidden group/cell">
+                    <div class="flex items-center min-w-0 gap-1">
+                      <span class="truncate flex-1 min-w-0 text-xs">{{ fmtCell(row[col]) }}</span>
+                      <button
+                        v-if="row[col] !== null && row[col] !== undefined && String(row[col]).length > 0"
+                        @click.stop="openPopover(col, row[col], $event)"
+                        class="shrink-0 opacity-0 group-hover/cell:opacity-100 transition-opacity text-tn-muted hover:text-tn-fg"
+                        title="View full value"
+                      >
+                        <svg class="w-3 h-3" viewBox="0 0 12 12" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
+                          <path d="M7.5 1.5h3v3m0-3L6 6M4.5 10.5h-3v-3"/>
+                        </svg>
+                      </button>
+                    </div>
+                  </td>
+                  <!-- Note cell -->
+                  <td class="px-3 py-1.5 max-w-48" @click.stop>
+                    <span
+                      v-if="notesStore.getNoteForRow(activeTab, row.id)"
+                      class="text-xs text-tn-fg-dim font-mono truncate block max-w-full cursor-default"
+                      :title="notesStore.getNoteForRow(activeTab, row.id)?.content"
+                    >{{ notesStore.getNoteForRow(activeTab, row.id)?.content }}</span>
+                  </td>
+                  <!-- Tags cell -->
+                  <td class="px-3 py-1.5 relative" @click.stop>
+                    <div class="flex items-center gap-1 flex-wrap">
+                      <TagBadge
+                        v-for="tag in tagsStore.getRowTags(activeTab, row.id)"
+                        :key="tag.id"
+                        :tag="tag"
+                        removable
+                        @remove="tagsStore.removeTag(tag.id, activeTab, [row.id])"
+                      />
+                      <button
+                        @click="openArtifactPicker(row.id, $event)"
+                        class="text-tn-muted hover:text-tn-fg-dim text-xs px-1 rounded hover:bg-tn-hover"
+                        title="Add tag"
+                      >+</button>
+                      <TagPicker
+                        v-if="artifactPickerRowId === row.id"
+                        :applied-ids="rowPickerApplied(row)"
+                        :partial-ids="new Set()"
+                        :anchor-rect="artifactPickerRect"
+                        @apply="onArtifactPickerApply"
+                        @remove="onArtifactPickerRemove"
+                        @close="closeArtifactPicker"
+                      />
+                    </div>
+                  </td>
+                </tr>
+
+                <!-- Expanded detail row: all fields word-wrapped -->
+                <tr v-if="expanded.has(row.id)" class="border-b border-tn-border bg-tn-raised/30">
+                  <td colspan="100" class="px-6 py-3">
+                    <div class="grid gap-x-6 gap-y-1" style="grid-template-columns: minmax(6rem, max-content) 1fr">
+                      <template v-for="(val, key) in row" :key="key">
+                        <template v-if="key !== 'id' && val !== null && val !== undefined && String(val).trim() !== ''">
+                          <div class="text-xs text-tn-fg-dim font-mono whitespace-nowrap py-0.5 select-none">{{ key }}</div>
+                          <div class="text-xs text-tn-fg font-mono break-all whitespace-pre-wrap py-0.5 select-text">{{ String(val) }}</div>
+                        </template>
+                      </template>
+                    </div>
+                    <div v-if="notesStore.getNoteForRow(activeTab, row.id)" class="mt-2 pt-2 border-t border-tn-border flex items-start gap-3">
+                      <span class="text-xs text-tn-fg-dim font-mono shrink-0 select-none">note</span>
+                      <span class="text-xs text-tn-fg font-mono break-all whitespace-pre-wrap select-text">{{ notesStore.getNoteForRow(activeTab, row.id)?.content }}</span>
+                    </div>
+                  </td>
+                </tr>
+              </template>
             </tbody>
           </table>
         </div>
@@ -805,6 +874,28 @@ function sysInfoValue(row) {
     @confirm="onArtifactNoteDeleteConfirm"
     @close="artifactConfirmTarget = null"
   />
+
+  <!-- Cell value popover (Option C) -->
+  <Teleport to="body">
+    <template v-if="popover">
+      <div class="fixed inset-0 z-40" @click="popover = null" />
+      <div
+        class="fixed z-50 bg-tn-surface border border-tn-border rounded-lg shadow-2xl w-96"
+        style="max-width: min(24rem, 90vw)"
+        :style="{ left: popover.x + 'px', top: popover.y + 'px' }"
+        @click.stop
+      >
+        <div class="flex items-center justify-between px-3 pt-2.5 pb-1.5 border-b border-tn-border">
+          <span class="text-xs text-tn-fg-dim font-mono">{{ popover.col }}</span>
+          <button @click="popover = null" class="text-tn-muted hover:text-tn-fg text-xs ml-4 leading-none">✕</button>
+        </div>
+        <div class="px-3 py-2.5 text-xs text-tn-fg font-mono break-all whitespace-pre-wrap max-h-64 overflow-y-auto select-text leading-relaxed">{{ popover.value }}</div>
+        <div class="px-3 pb-2.5">
+          <button @click="copyPopoverValue" class="text-xs text-tn-accent hover:text-tn-accent-hover transition-colors">Copy</button>
+        </div>
+      </div>
+    </template>
+  </Teleport>
 </template>
 
 <style scoped>
