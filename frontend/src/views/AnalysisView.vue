@@ -427,6 +427,10 @@ const colPrefs = useColumnPrefs(COL_DEFAULTS)
 const activeCols = computed(() => colPrefs.getOrder(activeTab.value))
 const colWidths  = computed(() => colPrefs.getWidths(activeTab.value))
 
+const activeFilterCount = computed(() =>
+  timelineStore.filters.colFilters.filter(r => r.col && r.pattern).length
+)
+
 const tableWidth = computed(() => {
   const fixedW = 32 + 192 + 192  // checkbox (2rem) + note (12rem) + tags (12rem)
   return fixedW + activeCols.value.reduce((sum, col) => sum + (colWidths.value[col] ?? 160), 0)
@@ -535,15 +539,19 @@ function sysInfoValue(row) {
     <!-- Left sidebar -->
     <aside
       class="shrink-0 border-r border-tn-border flex flex-col bg-tn-surface/50 overflow-hidden transition-[width] duration-200"
-      :class="sidebarCollapsed ? 'w-10' : 'w-64'"
+      :class="sidebarCollapsed ? 'w-10' : 'w-80'"
     >
       <!-- Header — toggle button is the leftmost element so it stays visible when collapsed -->
       <div class="flex items-start gap-2 p-2 border-b border-tn-border shrink-0">
         <button
           @click="sidebarCollapsed = !sidebarCollapsed"
-          class="shrink-0 text-tn-fg-dim hover:text-tn-fg transition-colors p-1 rounded mt-0.5"
+          class="relative shrink-0 text-tn-fg-dim hover:text-tn-fg transition-colors p-1 rounded mt-0.5"
           :title="sidebarCollapsed ? 'Expand sidebar' : 'Collapse sidebar'"
         >
+          <span
+            v-if="sidebarCollapsed && activeFilterCount > 0"
+            class="absolute -top-0.5 -right-0.5 min-w-3.5 h-3.5 px-0.5 rounded-full bg-tn-accent text-tn-bg text-[9px] font-bold flex items-center justify-center leading-none"
+          >{{ activeFilterCount }}</span>
           <svg
             xmlns="http://www.w3.org/2000/svg"
             class="w-4 h-4 transition-transform duration-200"

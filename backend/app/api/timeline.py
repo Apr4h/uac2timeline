@@ -10,6 +10,7 @@ GET /api/collections/{id}/users
 """
 from __future__ import annotations
 
+import json
 import os
 import re
 from collections import defaultdict
@@ -49,18 +50,62 @@ def _require_collection(collection_id: int, db: Session) -> UACCollection:
     return col
 
 
-def _apply_filter(text: str | None, filter_str: str | None, regex: str | None) -> bool:
-    """Return True if text passes the active filters."""
-    if text is None:
-        text = ""
-    if filter_str and filter_str.lower() not in text.lower():
-        return False
-    if regex:
+def _parse_col_filters(s: str | None) -> list[dict]:
+    """Decode JSON col_filters query param. Returns [] on any parse error."""
+    if not s:
+        return []
+    try:
+        rules = json.loads(s)
+        return [r for r in rules if r.get("col") and r.get("pattern")]
+    except (json.JSONDecodeError, TypeError):
+        return []
+
+
+_TIMELINE_TOP_FIELDS = {"hostname", "ts_description", "summary", "assoc_user", "source_ip", "dest_ip", "md5"}
+
+
+def _match_rule(val: str, pattern: str, is_regex: bool, mode: str) -> bool:
+    """Return True if val passes a single filter rule."""
+    if is_regex:
         try:
-            if not re.search(regex, text, re.IGNORECASE):
-                return False
+            matched = bool(re.search(pattern, val, re.IGNORECASE))
         except re.error:
-            pass
+            matched = False
+    else:
+        matched = pattern.lower() in val.lower()
+    if mode == "inc":
+        return matched
+    return not matched  # exc
+
+
+def _apply_col_filters_event(ev: "TimelineEvent", col_filters: list[dict]) -> bool:
+    """Return True if a TimelineEvent passes all column filter rules (AND)."""
+    for rule in col_filters:
+        col = rule["col"]
+        pattern = rule["pattern"]
+        is_regex = rule.get("isRegex", False)
+        mode = rule.get("mode", "inc")
+        if col == "type":
+            val = ev.artifact_type or ""
+        elif col in _TIMELINE_TOP_FIELDS:
+            val = str(getattr(ev, col) or "")
+        else:
+            val = str(ev.details.get(col) or "")
+        if not _match_rule(val, pattern, is_regex, mode):
+            return False
+    return True
+
+
+def _apply_col_filters_obj(obj, col_filters: list[dict]) -> bool:
+    """Return True if an ORM object passes all column filter rules (AND)."""
+    for rule in col_filters:
+        col = rule["col"]
+        pattern = rule["pattern"]
+        is_regex = rule.get("isRegex", False)
+        mode = rule.get("mode", "inc")
+        val = str(getattr(obj, col, None) or "")
+        if not _match_rule(val, pattern, is_regex, mode):
+            return False
     return True
 
 
@@ -196,16 +241,19 @@ def _get_timeline_python(
     start: Optional[datetime],
     end: Optional[datetime],
     requested_types: set,
-    filter_str: Optional[str],
-    regex: Optional[str],
+    col_filters: list[dict],
     tag_ids: Optional[str],
     limit: int,
     offset: int,
     db: Session,
     hostname: str | None = None,
 ) -> "TimelineResponse":
-    """Slow path: Python-level sort+filter for text/regex queries."""
+    """Slow path: Python-level sort+filter for column filter queries."""
     events: list[TimelineEvent] = []
+
+    def _add(ev: TimelineEvent) -> None:
+        if not col_filters or _apply_col_filters_event(ev, col_filters):
+            events.append(ev)
 
     if "processes" in requested_types:
         q = db.query(Process).filter_by(collection_id=collection_id)
@@ -213,9 +261,7 @@ def _get_timeline_python(
         if end:   q = q.filter(Process.started <= end)
         q = _filter_by_tags(q, Process, "processes", db, collection_id, tag_ids)
         for p in q.all():
-            summary = _process_summary(p)
-            if not _apply_filter(summary, filter_str, regex): continue
-            events.append(TimelineEvent(timestamp=p.started, artifact_type="processes", id=p.id, summary=summary, details=_obj_to_dict(p), **_enrich_event("processes", p, hostname=hostname)))
+            _add(TimelineEvent(timestamp=p.started, artifact_type="processes", id=p.id, summary=_process_summary(p), details=_obj_to_dict(p), **_enrich_event("processes", p, hostname=hostname)))
 
     if "auth" in requested_types:
         q = db.query(Authentication).filter_by(collection_id=collection_id)
@@ -223,9 +269,7 @@ def _get_timeline_python(
         if end:   q = q.filter(Authentication.time <= end)
         q = _filter_by_tags(q, Authentication, "auth", db, collection_id, tag_ids)
         for a in q.all():
-            summary = _auth_summary(a)
-            if not _apply_filter(summary, filter_str, regex): continue
-            events.append(TimelineEvent(timestamp=a.time, artifact_type="auth", id=a.id, summary=summary, details=_obj_to_dict(a), **_enrich_event("auth", a, hostname=hostname)))
+            _add(TimelineEvent(timestamp=a.time, artifact_type="auth", id=a.id, summary=_auth_summary(a), details=_obj_to_dict(a), **_enrich_event("auth", a, hostname=hostname)))
 
     if "cmdhistory" in requested_types:
         q = db.query(CommandHistory).filter_by(collection_id=collection_id)
@@ -233,9 +277,7 @@ def _get_timeline_python(
         if end:   q = q.filter(CommandHistory.time <= end)
         q = _filter_by_tags(q, CommandHistory, "cmdhistory", db, collection_id, tag_ids)
         for c in q.all():
-            summary = _cmdhistory_summary(c)
-            if not _apply_filter(summary, filter_str, regex): continue
-            events.append(TimelineEvent(timestamp=c.time, artifact_type="cmdhistory", id=c.id, summary=summary, details=_obj_to_dict(c), **_enrich_event("cmdhistory", c, hostname=hostname)))
+            _add(TimelineEvent(timestamp=c.time, artifact_type="cmdhistory", id=c.id, summary=_cmdhistory_summary(c), details=_obj_to_dict(c), **_enrich_event("cmdhistory", c, hostname=hostname)))
 
     if "cron" in requested_types:
         q = db.query(CronJob).filter_by(collection_id=collection_id)
@@ -245,9 +287,7 @@ def _get_timeline_python(
         for cj in q.all():
             if cj.source_file_modified is None and (start or end): continue
             user = f"{cj.username}: " if cj.username else ""
-            summary = f"{user}{cj.command or ''}".strip()
-            if not _apply_filter(summary, filter_str, regex): continue
-            events.append(TimelineEvent(timestamp=cj.source_file_modified, artifact_type="cron", id=cj.id, summary=summary, details=_obj_to_dict(cj), **_enrich_event("cron", cj, hostname=hostname)))
+            _add(TimelineEvent(timestamp=cj.source_file_modified, artifact_type="cron", id=cj.id, summary=f"{user}{cj.command or ''}".strip(), details=_obj_to_dict(cj), **_enrich_event("cron", cj, hostname=hostname)))
 
     if "services" in requested_types:
         q = db.query(SystemdService).filter_by(collection_id=collection_id)
@@ -257,10 +297,8 @@ def _get_timeline_python(
         for svc in q.all():
             if svc.source_file_modified is None and (start or end): continue
             label = f"{svc.unit_name or ''}.{svc.unit_type or ''}".strip('.')
-            detail = svc.description or svc.exec_start or ''
-            summary = f"{label}: {detail}".rstrip(': ')
-            if not _apply_filter(summary, filter_str, regex): continue
-            events.append(TimelineEvent(timestamp=svc.source_file_modified, artifact_type="services", id=svc.id, summary=summary, details=_obj_to_dict(svc), **_enrich_event("services", svc, hostname=hostname)))
+            summary = f"{label}: {svc.description or svc.exec_start or ''}".rstrip(': ')
+            _add(TimelineEvent(timestamp=svc.source_file_modified, artifact_type="services", id=svc.id, summary=summary, details=_obj_to_dict(svc), **_enrich_event("services", svc, hostname=hostname)))
 
     if "rcscripts" in requested_types:
         q = db.query(RcScript).filter_by(collection_id=collection_id)
@@ -270,9 +308,7 @@ def _get_timeline_python(
         for rc in q.all():
             if rc.source_file_modified is None and (start or end): continue
             user_part = f"{rc.username}: " if rc.username else ""
-            summary = f"{user_part}{rc.path or ''}".strip()
-            if not _apply_filter(summary, filter_str, regex): continue
-            events.append(TimelineEvent(timestamp=rc.source_file_modified, artifact_type="rcscripts", id=rc.id, summary=summary, details=_obj_to_dict(rc), **_enrich_event("rcscripts", rc, hostname=hostname)))
+            _add(TimelineEvent(timestamp=rc.source_file_modified, artifact_type="rcscripts", id=rc.id, summary=f"{user_part}{rc.path or ''}".strip(), details=_obj_to_dict(rc), **_enrich_event("rcscripts", rc, hostname=hostname)))
 
     if "files" in requested_types:
         q = db.query(File).filter_by(collection_id=collection_id)
@@ -281,17 +317,14 @@ def _get_timeline_python(
             for attr in ("mtime", "atime", "ctime", "crtime"):
                 ts = getattr(f, attr)
                 if ts is None or (start and ts < start) or (end and ts > end): continue
-                summary = f.path or ''
-                if not _apply_filter(summary, filter_str, regex): continue
-                events.append(TimelineEvent(timestamp=ts, artifact_type="files", id=f.id, summary=summary, details=_obj_to_dict(f), **_enrich_event("files", f, file_attr=attr, hostname=hostname)))
+                _add(TimelineEvent(timestamp=ts, artifact_type="files", id=f.id, summary=f.path or '', details=_obj_to_dict(f), **_enrich_event("files", f, file_attr=attr, hostname=hostname)))
 
     if "netconns" in requested_types and not start and not end:
         q = db.query(NetworkConnection).filter_by(collection_id=collection_id)
         q = _filter_by_tags(q, NetworkConnection, "netconns", db, collection_id, tag_ids)
         for nc in q.all():
             summary = f"{nc.proto} {nc.local_addr}:{nc.local_port} → {nc.remote_addr}:{nc.remote_port} [{nc.state}]"
-            if not _apply_filter(summary, filter_str, regex): continue
-            events.append(TimelineEvent(timestamp=None, artifact_type="netconns", id=nc.id, summary=summary, details=_obj_to_dict(nc), **_enrich_event("netconns", nc, hostname=hostname)))
+            _add(TimelineEvent(timestamp=None, artifact_type="netconns", id=nc.id, summary=summary, details=_obj_to_dict(nc), **_enrich_event("netconns", nc, hostname=hostname)))
 
     if "syslog" in requested_types:
         q = db.query(SyslogEntry).filter_by(collection_id=collection_id)
@@ -299,9 +332,7 @@ def _get_timeline_python(
         if end:   q = q.filter(SyslogEntry.timestamp <= end)
         q = _filter_by_tags(q, SyslogEntry, "syslog", db, collection_id, tag_ids)
         for s in q.all():
-            summary = _syslog_summary(s)
-            if not _apply_filter(summary, filter_str, regex): continue
-            events.append(TimelineEvent(timestamp=s.timestamp, artifact_type="syslog", id=s.id, summary=summary, details=_obj_to_dict(s), **_enrich_event("syslog", s, hostname=hostname)))
+            _add(TimelineEvent(timestamp=s.timestamp, artifact_type="syslog", id=s.id, summary=_syslog_summary(s), details=_obj_to_dict(s), **_enrich_event("syslog", s, hostname=hostname)))
 
     events.sort(key=lambda e: (e.timestamp is None, e.timestamp or datetime.min))
     total = len(events)
@@ -506,8 +537,7 @@ def get_timeline(
     start: Optional[datetime] = Query(default=None),
     end: Optional[datetime] = Query(default=None),
     types: Optional[str] = Query(default=None, description="Comma-separated: processes,netconns,auth,cmdhistory"),
-    filter: Optional[str] = Query(default=None, alias="filter"),
-    regex: Optional[str] = Query(default=None),
+    col_filters: Optional[str] = Query(default=None, description="JSON array of {col,mode,pattern,isRegex} rules"),
     tag_ids: Optional[str] = Query(default=None, description="Comma-separated tag IDs (OR logic)"),
     limit: int = Query(default=500, ge=1, le=5000),
     offset: int = Query(default=0, ge=0),
@@ -516,9 +546,10 @@ def get_timeline(
     col = _require_collection(collection_id, db)
     requested_types = {t.strip() for t in types.split(",")} if types else ALL_TYPES
     hostname = col.hostname
+    rules = _parse_col_filters(col_filters)
 
-    if filter or regex:
-        return _get_timeline_python(collection_id, start, end, requested_types, filter, regex, tag_ids, limit, offset, db, hostname=hostname)
+    if rules:
+        return _get_timeline_python(collection_id, start, end, requested_types, rules, tag_ids, limit, offset, db, hostname=hostname)
     return _get_timeline_sql(collection_id, start, end, requested_types, tag_ids, limit, offset, db, hostname=hostname)
 
 
@@ -527,8 +558,7 @@ def get_timeline(
 @router.get("/collections/{collection_id}/processes", response_model=PaginatedProcesses)
 def get_processes(
     collection_id: int,
-    filter: Optional[str] = Query(default=None, alias="filter"),
-    regex: Optional[str] = Query(default=None),
+    col_filters: Optional[str] = Query(default=None),
     tag_ids: Optional[str] = Query(default=None),
     limit: int = Query(default=500, ge=1, le=5000),
     offset: int = Query(default=0, ge=0),
@@ -538,8 +568,9 @@ def get_processes(
     q = db.query(Process).filter_by(collection_id=collection_id)
     q = _filter_by_tags(q, Process, "processes", db, collection_id, tag_ids)
     rows = q.all()
-    if filter or regex:
-        rows = [r for r in rows if _apply_filter(_process_summary(r), filter, regex)]
+    rules = _parse_col_filters(col_filters)
+    if rules:
+        rows = [r for r in rows if _apply_col_filters_obj(r, rules)]
     total = len(rows)
     return PaginatedProcesses(total=total, offset=offset, limit=limit, items=rows[offset: offset + limit])
 
@@ -547,8 +578,7 @@ def get_processes(
 @router.get("/collections/{collection_id}/netconns", response_model=PaginatedNetconns)
 def get_netconns(
     collection_id: int,
-    filter: Optional[str] = Query(default=None, alias="filter"),
-    regex: Optional[str] = Query(default=None),
+    col_filters: Optional[str] = Query(default=None),
     tag_ids: Optional[str] = Query(default=None),
     limit: int = Query(default=500, ge=1, le=5000),
     offset: int = Query(default=0, ge=0),
@@ -558,11 +588,9 @@ def get_netconns(
     q = db.query(NetworkConnection).filter_by(collection_id=collection_id)
     q = _filter_by_tags(q, NetworkConnection, "netconns", db, collection_id, tag_ids)
     rows = q.all()
-    if filter or regex:
-        rows = [r for r in rows if _apply_filter(
-            f"{r.proto} {r.local_addr}:{r.local_port} {r.remote_addr}:{r.remote_port} {r.state}",
-            filter, regex,
-        )]
+    rules = _parse_col_filters(col_filters)
+    if rules:
+        rows = [r for r in rows if _apply_col_filters_obj(r, rules)]
     total = len(rows)
     return PaginatedNetconns(total=total, offset=offset, limit=limit, items=rows[offset: offset + limit])
 
@@ -570,8 +598,7 @@ def get_netconns(
 @router.get("/collections/{collection_id}/auth", response_model=PaginatedAuth)
 def get_auth(
     collection_id: int,
-    filter: Optional[str] = Query(default=None, alias="filter"),
-    regex: Optional[str] = Query(default=None),
+    col_filters: Optional[str] = Query(default=None),
     tag_ids: Optional[str] = Query(default=None),
     limit: int = Query(default=500, ge=1, le=5000),
     offset: int = Query(default=0, ge=0),
@@ -581,8 +608,9 @@ def get_auth(
     q = db.query(Authentication).filter_by(collection_id=collection_id)
     q = _filter_by_tags(q, Authentication, "auth", db, collection_id, tag_ids)
     rows = q.all()
-    if filter or regex:
-        rows = [r for r in rows if _apply_filter(_auth_summary(r), filter, regex)]
+    rules = _parse_col_filters(col_filters)
+    if rules:
+        rows = [r for r in rows if _apply_col_filters_obj(r, rules)]
     total = len(rows)
     return PaginatedAuth(total=total, offset=offset, limit=limit, items=rows[offset: offset + limit])
 
@@ -590,8 +618,7 @@ def get_auth(
 @router.get("/collections/{collection_id}/cmdhistory", response_model=PaginatedCmdHistory)
 def get_cmdhistory(
     collection_id: int,
-    filter: Optional[str] = Query(default=None, alias="filter"),
-    regex: Optional[str] = Query(default=None),
+    col_filters: Optional[str] = Query(default=None),
     tag_ids: Optional[str] = Query(default=None),
     limit: int = Query(default=500, ge=1, le=5000),
     offset: int = Query(default=0, ge=0),
@@ -601,8 +628,9 @@ def get_cmdhistory(
     q = db.query(CommandHistory).filter_by(collection_id=collection_id)
     q = _filter_by_tags(q, CommandHistory, "cmdhistory", db, collection_id, tag_ids)
     rows = q.all()
-    if filter or regex:
-        rows = [r for r in rows if _apply_filter(_cmdhistory_summary(r), filter, regex)]
+    rules = _parse_col_filters(col_filters)
+    if rules:
+        rows = [r for r in rows if _apply_col_filters_obj(r, rules)]
     total = len(rows)
     return PaginatedCmdHistory(total=total, offset=offset, limit=limit, items=rows[offset: offset + limit])
 
@@ -610,8 +638,7 @@ def get_cmdhistory(
 @router.get("/collections/{collection_id}/users", response_model=PaginatedUsers)
 def get_users(
     collection_id: int,
-    filter: Optional[str] = Query(default=None, alias="filter"),
-    regex: Optional[str] = Query(default=None),
+    col_filters: Optional[str] = Query(default=None),
     tag_ids: Optional[str] = Query(default=None),
     limit: int = Query(default=500, ge=1, le=5000),
     offset: int = Query(default=0, ge=0),
@@ -621,11 +648,9 @@ def get_users(
     q = db.query(User).filter_by(collection_id=collection_id)
     q = _filter_by_tags(q, User, "users", db, collection_id, tag_ids)
     rows = q.all()
-    if filter or regex:
-        rows = [r for r in rows if _apply_filter(
-            f"{r.username} {r.shell} {r.home}",
-            filter, regex,
-        )]
+    rules = _parse_col_filters(col_filters)
+    if rules:
+        rows = [r for r in rows if _apply_col_filters_obj(r, rules)]
     total = len(rows)
     return PaginatedUsers(total=total, offset=offset, limit=limit, items=rows[offset: offset + limit])
 
@@ -633,8 +658,7 @@ def get_users(
 @router.get("/collections/{collection_id}/cron", response_model=PaginatedCronJobs)
 def get_cron(
     collection_id: int,
-    filter: Optional[str] = Query(default=None, alias="filter"),
-    regex: Optional[str] = Query(default=None),
+    col_filters: Optional[str] = Query(default=None),
     tag_ids: Optional[str] = Query(default=None),
     limit: int = Query(default=500, ge=1, le=5000),
     offset: int = Query(default=0, ge=0),
@@ -644,11 +668,9 @@ def get_cron(
     q = db.query(CronJob).filter_by(collection_id=collection_id)
     q = _filter_by_tags(q, CronJob, "cron", db, collection_id, tag_ids)
     rows = q.all()
-    if filter or regex:
-        rows = [r for r in rows if _apply_filter(
-            f"{r.username or ''} {r.command or ''} {r.source_file or ''} {r.source_type or ''}",
-            filter, regex,
-        )]
+    rules = _parse_col_filters(col_filters)
+    if rules:
+        rows = [r for r in rows if _apply_col_filters_obj(r, rules)]
     total = len(rows)
     return PaginatedCronJobs(total=total, offset=offset, limit=limit, items=rows[offset: offset + limit])
 
@@ -656,8 +678,7 @@ def get_cron(
 @router.get("/collections/{collection_id}/services", response_model=PaginatedSystemdServices)
 def get_systemd(
     collection_id: int,
-    filter: Optional[str] = Query(default=None, alias="filter"),
-    regex: Optional[str] = Query(default=None),
+    col_filters: Optional[str] = Query(default=None),
     tag_ids: Optional[str] = Query(default=None),
     limit: int = Query(default=500, ge=1, le=5000),
     offset: int = Query(default=0, ge=0),
@@ -667,11 +688,9 @@ def get_systemd(
     q = db.query(SystemdService).filter_by(collection_id=collection_id)
     q = _filter_by_tags(q, SystemdService, "services", db, collection_id, tag_ids)
     rows = q.all()
-    if filter or regex:
-        rows = [r for r in rows if _apply_filter(
-            f"{r.unit_name or ''} {r.description or ''} {r.exec_start or ''} {r.run_user or ''} {r.source_path or ''}",
-            filter, regex,
-        )]
+    rules = _parse_col_filters(col_filters)
+    if rules:
+        rows = [r for r in rows if _apply_col_filters_obj(r, rules)]
     total = len(rows)
     return PaginatedSystemdServices(total=total, offset=offset, limit=limit, items=rows[offset: offset + limit])
 
@@ -679,8 +698,7 @@ def get_systemd(
 @router.get("/collections/{collection_id}/rcscripts", response_model=PaginatedRcScripts)
 def get_rcscripts(
     collection_id: int,
-    filter: Optional[str] = Query(default=None, alias="filter"),
-    regex: Optional[str] = Query(default=None),
+    col_filters: Optional[str] = Query(default=None),
     tag_ids: Optional[str] = Query(default=None),
     limit: int = Query(default=500, ge=1, le=5000),
     offset: int = Query(default=0, ge=0),
@@ -690,11 +708,9 @@ def get_rcscripts(
     q = db.query(RcScript).filter_by(collection_id=collection_id)
     q = _filter_by_tags(q, RcScript, "rcscripts", db, collection_id, tag_ids)
     rows = q.all()
-    if filter or regex:
-        rows = [r for r in rows if _apply_filter(
-            f"{r.path or ''} {r.source_type or ''} {r.run_context or ''} {r.username or ''} {r.shell or ''}",
-            filter, regex,
-        )]
+    rules = _parse_col_filters(col_filters)
+    if rules:
+        rows = [r for r in rows if _apply_col_filters_obj(r, rules)]
     total = len(rows)
     return PaginatedRcScripts(total=total, offset=offset, limit=limit, items=rows[offset: offset + limit])
 
@@ -702,8 +718,7 @@ def get_rcscripts(
 @router.get("/collections/{collection_id}/syslog", response_model=PaginatedSyslog)
 def get_syslog(
     collection_id: int,
-    filter: Optional[str] = Query(default=None, alias="filter"),
-    regex: Optional[str] = Query(default=None),
+    col_filters: Optional[str] = Query(default=None),
     tag_ids: Optional[str] = Query(default=None),
     limit: int = Query(default=500, ge=1, le=5000),
     offset: int = Query(default=0, ge=0),
@@ -713,8 +728,9 @@ def get_syslog(
     q = db.query(SyslogEntry).filter_by(collection_id=collection_id)
     q = _filter_by_tags(q, SyslogEntry, "syslog", db, collection_id, tag_ids)
     rows = q.all()
-    if filter or regex:
-        rows = [r for r in rows if _apply_filter(_syslog_summary(r), filter, regex)]
+    rules = _parse_col_filters(col_filters)
+    if rules:
+        rows = [r for r in rows if _apply_col_filters_obj(r, rules)]
     total = len(rows)
     return PaginatedSyslog(total=total, offset=offset, limit=limit, items=rows[offset: offset + limit])
 
@@ -795,8 +811,7 @@ def get_system_info(
 @router.get("/collections/{collection_id}/files", response_model=PaginatedFiles)
 def get_files(
     collection_id: int,
-    filter: Optional[str] = Query(default=None, alias="filter"),
-    regex: Optional[str] = Query(default=None),
+    col_filters: Optional[str] = Query(default=None),
     tag_ids: Optional[str] = Query(default=None),
     limit: int = Query(default=500, ge=1, le=5000),
     offset: int = Query(default=0, ge=0),
@@ -806,7 +821,8 @@ def get_files(
     q = db.query(File).filter_by(collection_id=collection_id)
     q = _filter_by_tags(q, File, "files", db, collection_id, tag_ids)
     rows = q.all()
-    if filter or regex:
-        rows = [r for r in rows if _apply_filter(r.path or "", filter, regex)]
+    rules = _parse_col_filters(col_filters)
+    if rules:
+        rows = [r for r in rows if _apply_col_filters_obj(r, rules)]
     total = len(rows)
     return PaginatedFiles(total=total, offset=offset, limit=limit, items=rows[offset: offset + limit])

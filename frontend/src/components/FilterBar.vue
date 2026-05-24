@@ -16,6 +16,20 @@ const tagsStore = useTagsStore()
 const isCollapsed = ref(false)
 const ALL_TYPES = ['processes', 'auth', 'cmdhistory', 'netconns', 'files', 'cron', 'services', 'rcscripts', 'syslog']
 
+const COLUMN_LISTS = {
+  timeline:   ['type', 'hostname', 'ts_description', 'summary', 'assoc_user', 'source_ip', 'dest_ip', 'md5'],
+  processes:  ['pid', 'ppid', 'uid', 'user', 'command', 'arguments'],
+  netconns:   ['proto', 'local_addr', 'local_port', 'remote_addr', 'remote_port', 'state', 'pid'],
+  auth:       ['username', 'result', 'method', 'source', 'destination'],
+  cmdhistory: ['user', 'command', 'history_file'],
+  users:      ['username', 'uid', 'gid', 'gecos', 'home', 'shell'],
+  files:      ['path', 'mode', 'size', 'uid', 'gid', 'md5', 'inode'],
+  cron:       ['source_type', 'username', 'command', 'source_file'],
+  services:   ['unit_name', 'unit_type', 'description', 'exec_start', 'run_user', 'service_type', 'restart', 'source_dir_type'],
+  rcscripts:  ['path', 'source_type', 'run_context', 'username', 'shell', 'interpreter'],
+  syslog:     ['hostname', 'program', 'event_type', 'actor_user', 'target_user', 'source_ip', 'command', 'message', 'source_file'],
+}
+
 const TAG_CHIP_CLASSES = {
   red:    'bg-red-900/60 text-red-300 border-red-700',
   orange: 'bg-orange-900/60 text-orange-300 border-orange-700',
@@ -86,6 +100,40 @@ function reset() {
   emit('apply')
 }
 
+// ── Column filter rule builder ────────────────────────────────────────────────
+
+const activeRuleCount = computed(() =>
+  store.filters.colFilters.filter(r => r.col && r.pattern).length
+)
+
+function availableCols() {
+  return COLUMN_LISTS[props.activeTab] ?? COLUMN_LISTS.timeline
+}
+
+function addRule() {
+  const cols = availableCols()
+  store.filters.colFilters.push({ col: cols[0] ?? '', mode: 'inc', pattern: '', isRegex: false })
+}
+
+function removeRule(idx) {
+  store.filters.colFilters.splice(idx, 1)
+}
+
+function toggleMode(rule) {
+  rule.mode = rule.mode === 'inc' ? 'exc' : 'inc'
+}
+
+function toggleRegex(rule) {
+  rule.isRegex = !rule.isRegex
+}
+
+// Reset rules when tab changes so stale column names don't carry over
+watch(() => props.activeTab, () => {
+  store.filters.colFilters = []
+})
+
+// ── Saved filters ─────────────────────────────────────────────────────────────
+
 const { saved, load: loadSaved, save: doSave, remove: doRemove } = useSavedFilters()
 
 watch(() => props.collectionId, (id) => { if (id) loadSaved(id) }, { immediate: true })
@@ -107,25 +155,23 @@ function confirmSave() {
   const name = savingName.value.trim()
   if (!name) return
   doSave(props.collectionId, name, {
-    filterStr: store.filters.filterStr,
-    regex:     store.filters.regex,
-    start:     store.filters.start,
-    end:       store.filters.end,
-    types:     [...store.filters.types],
-    tagIds:    [...store.filters.tagIds],
+    colFilters: store.filters.colFilters.map(r => ({ ...r })),
+    start:      store.filters.start,
+    end:        store.filters.end,
+    types:      [...store.filters.types],
+    tagIds:     [...store.filters.tagIds],
   })
   showSaveForm.value = false
   savingName.value = ''
 }
 
 function loadEntry(entry) {
-  store.filters.filterStr = entry.filters.filterStr ?? ''
-  store.filters.regex     = entry.filters.regex     ?? ''
-  store.filters.start     = entry.filters.start     ?? ''
-  store.filters.end       = entry.filters.end       ?? ''
-  store.filters.types     = [...(entry.filters.types  ?? ALL_TYPES)]
-  store.filters.tagIds    = [...(entry.filters.tagIds ?? [])]
-  store.filters.offset    = 0
+  store.filters.colFilters = (entry.filters.colFilters ?? []).map(r => ({ ...r }))
+  store.filters.start      = entry.filters.start   ?? ''
+  store.filters.end        = entry.filters.end     ?? ''
+  store.filters.types      = [...(entry.filters.types  ?? ALL_TYPES)]
+  store.filters.tagIds     = [...(entry.filters.tagIds ?? [])]
+  store.filters.offset     = 0
   emit('apply')
 }
 </script>
@@ -136,9 +182,14 @@ function loadEntry(entry) {
       <span class="text-xs font-semibold text-tn-fg-dim uppercase tracking-wider">Filters</span>
       <button
         @click="isCollapsed = !isCollapsed"
-        class="text-tn-fg-dim hover:text-tn-fg transition-colors p-0.5 rounded"
+        class="relative text-tn-fg-dim hover:text-tn-fg transition-colors p-0.5 rounded"
         :title="isCollapsed ? 'Expand filters' : 'Collapse filters'"
       >
+        <!-- active-rule indicator dot when collapsed -->
+        <span
+          v-if="isCollapsed && activeRuleCount > 0"
+          class="absolute -top-1 -right-1 min-w-3.5 h-3.5 px-0.5 rounded-full bg-tn-accent text-tn-bg text-[9px] font-bold flex items-center justify-center leading-none"
+        >{{ activeRuleCount }}</span>
         <svg
           xmlns="http://www.w3.org/2000/svg"
           class="w-3.5 h-3.5 transition-transform duration-200"
@@ -156,24 +207,71 @@ function loadEntry(entry) {
     <Transition name="slide-fade">
       <div v-show="!isCollapsed" class="flex flex-col gap-3">
 
+        <!-- Column filter rule builder -->
         <div>
-          <label class="text-xs text-tn-fg-dim block mb-1">Keyword</label>
-          <input
-            v-model="store.filters.filterStr"
-            @keyup.enter="apply"
-            placeholder="Search summaries…"
-            class="w-full bg-tn-raised border border-tn-border-strong rounded px-3 py-1.5 text-sm text-tn-fg placeholder-tn-muted focus:outline-none focus:border-tn-accent"
-          />
-        </div>
+          <div class="flex items-center justify-between mb-1.5">
+            <label class="text-xs text-tn-fg-dim">Column filters</label>
+            <button
+              @click="addRule"
+              class="text-xs text-tn-accent hover:text-tn-accent-hover transition-colors"
+            >+ Add rule</button>
+          </div>
 
-        <div>
-          <label class="text-xs text-tn-fg-dim block mb-1">Regex</label>
-          <input
-            v-model="store.filters.regex"
-            @keyup.enter="apply"
-            placeholder="/pattern/i"
-            class="w-full bg-tn-raised border border-tn-border-strong rounded px-3 py-1.5 text-sm font-mono text-tn-fg placeholder-tn-muted focus:outline-none focus:border-tn-accent"
-          />
+          <div v-if="store.filters.colFilters.length === 0" class="text-xs text-tn-muted italic">
+            No filters — all rows shown.
+          </div>
+
+          <div v-for="(rule, idx) in store.filters.colFilters" :key="idx"
+            class="mb-2 rounded border border-tn-border/50 bg-tn-raised/40 px-2 py-1.5 flex flex-col gap-1"
+          >
+            <!-- Row 1: column selector + mode toggle -->
+            <div class="flex gap-1 items-center">
+              <select
+                v-model="rule.col"
+                class="flex-1 min-w-0 bg-tn-raised border border-tn-border-strong rounded px-1.5 py-1 text-xs text-tn-fg font-mono focus:outline-none focus:border-tn-accent"
+              >
+                <option v-for="col in availableCols()" :key="col" :value="col">{{ col }}</option>
+              </select>
+
+              <!-- +/− mode toggle -->
+              <button
+                @click="toggleMode(rule)"
+                :class="['shrink-0 w-6 h-6 rounded text-sm font-bold transition-colors flex items-center justify-center',
+                  rule.mode === 'inc'
+                    ? 'bg-green-900/50 text-green-300 hover:bg-green-900/80'
+                    : 'bg-red-900/50 text-red-300 hover:bg-red-900/80']"
+                :title="rule.mode === 'inc' ? 'Inclusive — row must match' : 'Exclusive — row must NOT match'"
+              >{{ rule.mode === 'inc' ? '+' : '−' }}</button>
+            </div>
+
+            <!-- Row 2: pattern input + regex icon + remove -->
+            <div class="flex gap-1 items-center">
+              <input
+                v-model="rule.pattern"
+                @keyup.enter="apply"
+                placeholder="pattern…"
+                :class="['flex-1 min-w-0 bg-tn-raised border border-tn-border-strong rounded px-2 py-1 text-xs text-tn-fg font-mono placeholder-tn-muted focus:outline-none focus:border-tn-accent',
+                  rule.isRegex ? 'italic' : '']"
+              />
+
+              <!-- Regex toggle — /…/ icon -->
+              <button
+                @click="toggleRegex(rule)"
+                :class="['shrink-0 w-6 h-6 rounded text-xs font-mono font-semibold transition-colors flex items-center justify-center',
+                  rule.isRegex
+                    ? 'bg-tn-accent text-tn-bg'
+                    : 'bg-tn-raised text-tn-fg-dim hover:bg-tn-hover']"
+                title="Toggle regular expression"
+              >/./</button>
+
+              <!-- Remove -->
+              <button
+                @click="removeRule(idx)"
+                class="shrink-0 w-6 h-6 rounded text-tn-muted hover:text-red-400 hover:bg-red-900/30 transition-colors flex items-center justify-center text-sm leading-none"
+                title="Remove rule"
+              >✕</button>
+            </div>
+          </div>
         </div>
 
         <template v-if="activeTab === 'timeline'">
