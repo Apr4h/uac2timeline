@@ -26,6 +26,7 @@ class UACCollection(Base):
     cron_jobs = relationship("CronJob", back_populates="collection")
     systemd_services = relationship("SystemdService", back_populates="collection")
     rc_scripts = relationship("RcScript", back_populates="collection")
+    syslog_entries = relationship("SyslogEntry", back_populates="collection")
 
     def __repr__(self):
         return f"<UACCollection(hostname='{self.hostname}')>"
@@ -274,6 +275,33 @@ class RcScript(Base):
 
     def __repr__(self):
         return f"<RcScript(path='{self.path}', source_type='{self.source_type}')>"
+
+
+class SyslogEntry(Base):
+    __tablename__ = 'syslog_entries'
+
+    id           = Column(Integer, primary_key=True)
+    collection_id = Column(Integer, ForeignKey('uac_collections.id'))
+
+    timestamp    = Column(DateTime)          # parsed; None when no year can be inferred
+    hostname     = Column(String)            # host field in the log line
+    program      = Column(String)            # process/program name
+    pid          = Column(Integer)           # optional PID from program[pid]
+    severity     = Column(String)            # optional syslog severity label
+    message      = Column(String)            # the log message body
+    source_file  = Column(String)            # relative path of the source log file
+
+    # Enriched fields populated by second-pass message parsing
+    event_type   = Column(String)            # e.g. "ssh_login_success", "sudo_command"
+    actor_user   = Column(String)            # user initiating the action
+    target_user  = Column(String)            # user being acted upon (sudo -u, su to)
+    source_ip    = Column(String)            # source IP for SSH/network events
+    command      = Column(String)            # command string for sudo/cron events
+
+    collection = relationship("UACCollection", back_populates="syslog_entries")
+
+    def __repr__(self):
+        return f"<SyslogEntry(program='{self.program}', timestamp='{self.timestamp}')>"
 
 
 class SystemInfo(Base):

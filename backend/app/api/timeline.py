@@ -26,20 +26,20 @@ from backend.app.schemas import (
     TimelineEvent, TimelineResponse,
     PaginatedProcesses, PaginatedNetconns, PaginatedAuth,
     PaginatedCmdHistory, PaginatedUsers, PaginatedFiles, PaginatedCronJobs,
-    PaginatedSystemdServices, PaginatedRcScripts,
+    PaginatedSystemdServices, PaginatedRcScripts, PaginatedSyslog,
     ProcessOut, NetworkConnectionOut, AuthenticationOut,
     CommandHistoryOut, UserOut, FileOut, SystemInfoOut, CronJobOut,
-    SystemdServiceOut, RcScriptOut, FilePreviewResponse,
+    SystemdServiceOut, RcScriptOut, SyslogEntryOut, FilePreviewResponse,
 )
 from uac_parser.models import (
     UACCollection, Process, NetworkConnection,
     Authentication, CommandHistory, User, File, SystemInfo, CronJob,
-    SystemdService, RcScript,
+    SystemdService, RcScript, SyslogEntry,
 )
 
 router = APIRouter()
 
-ALL_TYPES = {"processes", "netconns", "auth", "cmdhistory", "files", "cron", "services", "rcscripts"}
+ALL_TYPES = {"processes", "netconns", "auth", "cmdhistory", "files", "cron", "services", "rcscripts", "syslog"}
 
 
 def _require_collection(collection_id: int, db: Session) -> UACCollection:
@@ -85,6 +85,12 @@ def _auth_summary(a: Authentication) -> str:
     if a.source:
         parts.append(f"from {a.source}")
     return " ".join(parts) or "authentication event"
+
+
+def _syslog_summary(s: SyslogEntry) -> str:
+    prog = f"{s.program}[{s.pid}]" if s.pid else (s.program or "")
+    host = f"{s.hostname} " if s.hostname else ""
+    return f"{host}{prog}: {s.message or ''}".strip(": ")
 
 
 def _cmdhistory_summary(c: CommandHistory) -> str:
@@ -225,6 +231,16 @@ def _get_timeline_python(
             if not _apply_filter(summary, filter_str, regex): continue
             events.append(TimelineEvent(timestamp=None, artifact_type="netconns", id=nc.id, summary=summary, details=_obj_to_dict(nc)))
 
+    if "syslog" in requested_types:
+        q = db.query(SyslogEntry).filter_by(collection_id=collection_id)
+        if start: q = q.filter(SyslogEntry.timestamp >= start)
+        if end:   q = q.filter(SyslogEntry.timestamp <= end)
+        q = _filter_by_tags(q, SyslogEntry, "syslog", db, collection_id, tag_ids)
+        for s in q.all():
+            summary = _syslog_summary(s)
+            if not _apply_filter(summary, filter_str, regex): continue
+            events.append(TimelineEvent(timestamp=s.timestamp, artifact_type="syslog", id=s.id, summary=summary, details=_obj_to_dict(s)))
+
     events.sort(key=lambda e: (e.timestamp is None, e.timestamp or datetime.min))
     total = len(events)
     return TimelineResponse(total=total, offset=offset, limit=limit, events=events[offset: offset + limit])
@@ -266,6 +282,7 @@ def _get_timeline_sql(
         (CronJob,        "source_file_modified", "cron"),
         (SystemdService, "source_file_modified", "services"),
         (RcScript,       "source_file_modified", "rcscripts"),
+        (SyslogEntry,    "timestamp",            "syslog"),
     ]
     for model, ts_attr, atype in _SIMPLE:
         if atype not in requested_types:
@@ -360,6 +377,9 @@ def _get_timeline_sql(
     if ids_by_atype.get("netconns"):
         for nc in db.query(NetworkConnection).filter(NetworkConnection.id.in_(ids_by_atype["netconns"])):
             objs[("netconns", nc.id)] = nc
+    if ids_by_atype.get("syslog"):
+        for s in db.query(SyslogEntry).filter(SyslogEntry.id.in_(ids_by_atype["syslog"])):
+            objs[("syslog", s.id)] = s
 
     _FILE_ATTR = {
         "files_M": ("M", "mtime"),
@@ -406,6 +426,10 @@ def _get_timeline_sql(
             nc = objs.get(("netconns", eid))
             if nc:
                 events.append(TimelineEvent(timestamp=None, artifact_type="netconns", id=nc.id, summary=f"{nc.proto} {nc.local_addr}:{nc.local_port} → {nc.remote_addr}:{nc.remote_port} [{nc.state}]", details=_obj_to_dict(nc)))
+        elif atype == "syslog":
+            s = objs.get(("syslog", eid))
+            if s:
+                events.append(TimelineEvent(timestamp=s.timestamp, artifact_type="syslog", id=s.id, summary=_syslog_summary(s), details=_obj_to_dict(s)))
 
     return TimelineResponse(total=total, offset=offset, limit=limit, events=events)
 
@@ -606,6 +630,26 @@ def get_rcscripts(
         )]
     total = len(rows)
     return PaginatedRcScripts(total=total, offset=offset, limit=limit, items=rows[offset: offset + limit])
+
+
+@router.get("/collections/{collection_id}/syslog", response_model=PaginatedSyslog)
+def get_syslog(
+    collection_id: int,
+    filter: Optional[str] = Query(default=None, alias="filter"),
+    regex: Optional[str] = Query(default=None),
+    tag_ids: Optional[str] = Query(default=None),
+    limit: int = Query(default=500, ge=1, le=5000),
+    offset: int = Query(default=0, ge=0),
+    db: Session = Depends(get_db),
+):
+    _require_collection(collection_id, db)
+    q = db.query(SyslogEntry).filter_by(collection_id=collection_id)
+    q = _filter_by_tags(q, SyslogEntry, "syslog", db, collection_id, tag_ids)
+    rows = q.all()
+    if filter or regex:
+        rows = [r for r in rows if _apply_filter(_syslog_summary(r), filter, regex)]
+    total = len(rows)
+    return PaginatedSyslog(total=total, offset=offset, limit=limit, items=rows[offset: offset + limit])
 
 
 _PREVIEW_SIZE_CAP = 512 * 1024  # 512 KB

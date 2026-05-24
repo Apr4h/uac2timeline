@@ -76,6 +76,7 @@ class CollectionOut(BaseModel):
     cron_count: int = 0
     systemd_count: int = 0
     rcscripts_count: int = 0
+    syslog_count: int = 0
     # Latest processing job summary
     latest_job: Optional[ProcessingJobOut] = None
 
@@ -317,6 +318,32 @@ class PaginatedRcScripts(BaseModel):
     offset: int
     limit: int
     items: list[RcScriptOut]
+
+
+class SyslogEntryOut(BaseModel):
+    id: int
+    timestamp: UTCDatetime
+    hostname: Optional[str]
+    program: Optional[str]
+    pid: Optional[int]
+    severity: Optional[str]
+    message: Optional[str]
+    source_file: Optional[str]
+    event_type: Optional[str]
+    actor_user: Optional[str]
+    target_user: Optional[str]
+    source_ip: Optional[str]
+    command: Optional[str]
+
+    class Config:
+        from_attributes = True
+
+
+class PaginatedSyslog(BaseModel):
+    total: int
+    offset: int
+    limit: int
+    items: list[SyslogEntryOut]
 
 
 class TagOut(BaseModel):

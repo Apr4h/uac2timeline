@@ -172,6 +172,7 @@ const TYPE_COLORS = {
   services:   'bg-blue-900/60 text-blue-300 border-blue-700',
   cron:       'bg-pink-900/60 text-pink-300 border-pink-700',
   rcscripts:  'bg-red-900/60 text-red-300 border-red-700',
+  syslog:     'bg-teal-900/60 text-teal-300 border-teal-700',
 }
 
 function typeClass(t) {

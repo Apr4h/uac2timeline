@@ -14,7 +14,7 @@ const store = useTimelineStore()
 const tagsStore = useTagsStore()
 
 const isCollapsed = ref(false)
-const ALL_TYPES = ['processes', 'auth', 'cmdhistory', 'netconns', 'files', 'cron', 'services', 'rcscripts']
+const ALL_TYPES = ['processes', 'auth', 'cmdhistory', 'netconns', 'files', 'cron', 'services', 'rcscripts', 'syslog']
 
 const TAG_CHIP_CLASSES = {
   red:    'bg-red-900/60 text-red-300 border-red-700',
@@ -214,21 +214,21 @@ function loadEntry(entry) {
               >{{ t }}</button>
             </div>
           </div>
-
-          <div>
-            <label class="text-xs text-tn-fg-dim block mb-2">Page size</label>
-            <div class="flex gap-1.5">
-              <button
-                v-for="n in PAGE_SIZES" :key="n"
-                @click="setLimit(n)"
-                :class="['px-2.5 py-1 rounded text-xs font-mono transition-colors',
-                  store.filters.limit === n
-                    ? 'bg-tn-accent text-tn-bg'
-                    : 'bg-tn-raised text-tn-fg-dim hover:bg-tn-hover']"
-              >{{ n }}</button>
-            </div>
-          </div>
         </template>
+
+        <div>
+          <label class="text-xs text-tn-fg-dim block mb-2">Page size</label>
+          <div class="flex gap-1.5">
+            <button
+              v-for="n in PAGE_SIZES" :key="n"
+              @click="setLimit(n)"
+              :class="['px-2.5 py-1 rounded text-xs font-mono transition-colors',
+                store.filters.limit === n
+                  ? 'bg-tn-accent text-tn-bg'
+                  : 'bg-tn-raised text-tn-fg-dim hover:bg-tn-hover']"
+            >{{ n }}</button>
+          </div>
+        </div>
 
         <div v-if="tagsStore.tags.length > 0">
           <label class="text-xs text-tn-fg-dim block mb-2">Tags</label>

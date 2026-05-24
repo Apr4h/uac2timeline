@@ -5,7 +5,9 @@ custom_patterns = {
     # Network connection states
     "NETWORK_STATE": "(?i)(LISTEN|SYN_SENT|SYN_RECEIVED|ESTABLISHED|FIN_WAIT_1|FIN_WAIT_2|CLOSE_WAIT|CLOSING|LAST_ACK|TIME_WAIT|CLOSED|CONNECTED|LISTENING|CONNECTING|DISCONNECTED|UNCONN|ESTAB|CLOSE)",
     # IP address or wildcard
-    "IP_OR_STAR": "(?:%{IP}|\\*)"
+    "IP_OR_STAR": "(?:%{IP}|\\*)",
+    # Syslog program/process name: printable ASCII excluding [ and ]
+    "SYSLOGPROG": r"[a-zA-Z0-9_\-\/\.\@:+]+"
 }
 
 bodyfile_patterns = {
@@ -75,10 +77,41 @@ auth_patterns = {
 }
 
 
-command_history_patterns = {
+syslog_patterns = {
+    # BSD/RFC3164: "Nov 28 00:01:52 hostname sshd[123]: message"
+    # Space-padded single-digit days handled by " +" between MONTH and MONTHDAY.
+    # MONTH/MONTHDAY/TIME captured with uppercase names so parse_timestamp_from_match
+    # picks them up without modification.
+    "SYSLOG_BSD": (
+        r"^%{MONTH:MONTH} +%{MONTHDAY:MONTHDAY} %{TIME:TIME}"
+        r"\s+%{NOTSPACE:hostname}"
+        r"\s+%{SYSLOGPROG:program}(?:\[%{NONNEGINT:pid}\])?:"
+        r"(?:\s+%{GREEDYDATA:message})?$"
+    ),
 
-    "SUDO_COMMAND": "^%{TIMESTAMP_ISO8601:timestamp}\\s+%{HOSTNAME:hostname}\\s+sudo(?:\\[%{NUMBER:pid}\\])?:\\s+%{USERNAME:username}\\s+:\\s+TTY=%{DATA:tty}\\s+;\\s+PWD=%{DATA:pwd}\\s+;\\s+USER=%{USERNAME:target_user}\\s+;\\s+COMMAND=%{GREEDYDATA:command}$",
+    # ISO-timestamp syslog: "2024-01-15T09:00:00+00:00 hostname sshd[123]: message"
+    # Covers rsyslog high-precision format and journald text exports.
+    "SYSLOG_ISO": (
+        r"^%{TIMESTAMP_ISO8601:TIMESTAMP_ISO8601}"
+        r"\s+%{NOTSPACE:hostname}"
+        r"\s+%{SYSLOGPROG:program}(?:\[%{NONNEGINT:pid}\])?:"
+        r"(?:\s+%{GREEDYDATA:message})?$"
+    ),
+
+    # RFC5424 structured: "<pri>version TIMESTAMP-ISO host app procid msgid - msg"
+    # The structured-data block is intentionally swallowed by .*? before message.
+    "SYSLOG_RFC5424": (
+        r"^<%{NONNEGINT:priority}>\d\s+"
+        r"%{TIMESTAMP_ISO8601:TIMESTAMP_ISO8601}"
+        r"\s+%{NOTSPACE:hostname}"
+        r"\s+%{NOTSPACE:program}"
+        r"\s+(?:%{NONNEGINT:pid}|-)"
+        r"\s+\S+"                         # msgid
+        r"\s+.*?(?:\s+%{GREEDYDATA:message})?$"
+    ),
 }
+
+command_history_patterns = {}
 
 
 user_patterns = {

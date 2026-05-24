@@ -41,6 +41,7 @@ const TABS = [
   { key: 'cron',       label: 'Cron' },
   { key: 'services',  label: 'Services' },
   { key: 'rcscripts', label: 'RC Scripts' },
+  { key: 'syslog',    label: 'Syslog' },
 ]
 
 // System info tab state
@@ -49,6 +50,7 @@ const systemInfo = ref(null)
 // Per-artifact tab state
 const tabData = ref({ items: [], total: 0 })
 const tabLoading = ref(false)
+const artifactLoadingMore = ref(false)
 
 // Per-artifact sort state
 const sortCol = ref(null)
@@ -113,12 +115,23 @@ watch(activeTab, () => {
   artifactSelected.value = new Set()
   artifactPickerRowId.value = null
   lastClickedArtifactId.value = null
+  artifactLoadingMore.value = false
   loadTab()
 })
 
 async function loadMore() {
   if (activeTab.value === 'timeline') {
     await timelineStore.appendTimeline(collectionId.value)
+  } else {
+    artifactLoadingMore.value = true
+    try {
+      timelineStore.filters.offset += timelineStore.filters.limit
+      const result = await timelineStore.fetchArtifact(collectionId.value, activeTab.value)
+      tabData.value.items.push(...result.items)
+      tabData.value.total = result.total
+    } finally {
+      artifactLoadingMore.value = false
+    }
   }
 }
 
@@ -367,6 +380,7 @@ const COL_DEFAULTS = {
   cron:       ['source_type', 'username', 'minute', 'hour', 'day_of_month', 'month', 'day_of_week', 'command', 'source_file_modified', 'source_file'],
   services:   ['unit_name', 'unit_type', 'description', 'exec_start', 'run_user', 'service_type', 'restart', 'source_dir_type', 'source_file'],
   rcscripts:  ['path', 'source_type', 'run_context', 'username', 'shell', 'interpreter', 'file_size', 'source_file_modified'],
+  syslog:     ['timestamp', 'hostname', 'program', 'event_type', 'actor_user', 'target_user', 'source_ip', 'command', 'message', 'source_file'],
 }
 
 const colPrefs = useColumnPrefs(COL_DEFAULTS)
@@ -504,9 +518,6 @@ function sysInfoValue(row) {
 
         <!-- Collection info — clipped by overflow-hidden when collapsed -->
         <div class="flex-1 min-w-0 pt-0.5">
-          <button @click="router.push('/collections')" class="text-xs text-tn-fg-dim hover:text-tn-fg mb-3 flex items-center gap-1">
-            ← Collections
-          </button>
           <div v-if="collection">
             <div class="font-mono font-medium text-tn-fg truncate">{{ collection.hostname }}</div>
             <div class="text-xs text-tn-muted mt-0.5">{{ collection.os }}</div>
@@ -706,11 +717,19 @@ function sysInfoValue(row) {
         </div>
         <div class="border-t border-tn-border px-4 py-2 text-xs text-tn-fg-dim shrink-0 flex items-center justify-between">
           <span>Showing {{ tabData.items?.length ?? 0 }} of {{ tabData.total ?? 0 }}</span>
-          <button
-            @click="colPrefs.reset(activeTab)"
-            class="text-tn-muted hover:text-tn-fg-dim transition-colors"
-            title="Reset column order and widths"
-          >Reset columns</button>
+          <div class="flex items-center gap-4">
+            <button
+              v-if="(tabData.items?.length ?? 0) < (tabData.total ?? 0)"
+              @click="loadMore"
+              :disabled="artifactLoadingMore"
+              class="text-tn-accent hover:text-tn-accent-hover disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
+            >{{ artifactLoadingMore ? 'Loading…' : 'Load more' }}</button>
+            <button
+              @click="colPrefs.reset(activeTab)"
+              class="text-tn-muted hover:text-tn-fg-dim transition-colors"
+              title="Reset column order and widths"
+            >Reset columns</button>
+          </div>
         </div>
 
         <!-- Bulk action bar -->

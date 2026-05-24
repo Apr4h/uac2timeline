@@ -32,6 +32,7 @@ from backend.app.schemas import (
 from uac_parser.models import (
     UACCollection, Process, NetworkConnection,
     Authentication, CommandHistory, User, CronJob, SystemdService, RcScript,
+    SyslogEntry,
 )
 from uac_parser.parser import get_collection_metadata
 
@@ -50,6 +51,7 @@ def _collection_out(col: UACCollection, db: Session) -> CollectionOut:
         "cron_count": db.query(func.count(CronJob.id)).filter_by(collection_id=col.id).scalar() or 0,
         "systemd_count": db.query(func.count(SystemdService.id)).filter_by(collection_id=col.id).scalar() or 0,
         "rcscripts_count": db.query(func.count(RcScript.id)).filter_by(collection_id=col.id).scalar() or 0,
+        "syslog_count": db.query(func.count(SyslogEntry.id)).filter_by(collection_id=col.id).scalar() or 0,
     }
     latest_job = (
         db.query(ProcessingJob)
@@ -211,6 +213,7 @@ def delete_collection(collection_id: int, db: Session = Depends(get_db)):
     db.query(CronJob).filter_by(collection_id=collection_id).delete()
     db.query(SystemdService).filter_by(collection_id=collection_id).delete()
     db.query(RcScript).filter_by(collection_id=collection_id).delete()
+    db.query(SyslogEntry).filter_by(collection_id=collection_id).delete()
     db.query(Note).filter_by(collection_id=collection_id).delete()
 
     # Delete processing jobs (cascade handles artifact_jobs + logs)

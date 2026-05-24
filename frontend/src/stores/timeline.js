@@ -2,7 +2,7 @@ import { defineStore } from 'pinia'
 import { ref, reactive } from 'vue'
 import axios from 'axios'
 
-const ALL_ARTIFACT_TYPES = ['processes', 'auth', 'cmdhistory', 'netconns', 'files', 'cron', 'services', 'rcscripts']
+const ALL_ARTIFACT_TYPES = ['processes', 'auth', 'cmdhistory', 'netconns', 'files', 'cron', 'services', 'rcscripts', 'syslog']
 
 // Normalise ISO text before sending: space → T, Z → +00:00
 function normaliseDateParam(s) {

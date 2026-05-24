@@ -269,6 +269,19 @@ def parse_rcscripts_task(self, artifact_job_id: int, collection_id: int, process
     )
 
 
+@celery.task(bind=True, name="tasks.parse_syslog")
+def parse_syslog_task(self, artifact_job_id: int, collection_id: int, processing_job_id: int, collection_path: str, tz_offset_str: str | None = None):
+    from uac_parser.artifacts.syslog import parse_syslog
+    return _run_artifact_task(
+        artifact_job_id, collection_id, processing_job_id,
+        parse_fn=parse_syslog,
+        set_id_fn=lambda obj, cid: setattr(obj, "collection_id", cid),
+        tz_offset_str=tz_offset_str,
+        ts_fields=("timestamp",),
+        uac_collection_path=collection_path,
+    )
+
+
 # ── Orchestrator task ─────────────────────────────────────────────────────────
 
 ARTIFACT_TASKS = {
@@ -281,6 +294,7 @@ ARTIFACT_TASKS = {
     "systemd": parse_systemd_task,
     "bodyfile": parse_bodyfile_task,
     "rcscripts": parse_rcscripts_task,
+    "syslog": parse_syslog_task,
 }
 
 
@@ -365,6 +379,9 @@ def process_collection(self, job_id: int, collection_path: str, collection_id: i
     ))
     subtasks.append(parse_rcscripts_task.s(
         artifact_job_ids["rcscripts"], collection_id, job_id, collection_path
+    ))
+    subtasks.append(parse_syslog_task.s(
+        artifact_job_ids["syslog"], collection_id, job_id, collection_path, tz_offset_str
     ))
 
     # Run all subtasks in parallel, then finalize
