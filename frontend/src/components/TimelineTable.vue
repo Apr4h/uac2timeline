@@ -279,6 +279,7 @@ onUnmounted(() => {
 
 // ── Cell value popover ────────────────────────────────────────────────────────
 const timelinePopover = ref(null) // { col, value, x, y }
+const timelinePopoverCopied = ref(false)
 
 function openTimelinePopover(col, value, event) {
   event.stopPropagation()
@@ -289,12 +290,17 @@ function openTimelinePopover(col, value, event) {
 
 async function copyTimelinePopoverValue() {
   if (!timelinePopover.value?.value) return
-  try { await navigator.clipboard.writeText(timelinePopover.value.value) } catch {}
+  try {
+    await navigator.clipboard.writeText(timelinePopover.value.value)
+    timelinePopoverCopied.value = true
+    setTimeout(() => { timelinePopoverCopied.value = false }, 1500)
+  } catch {}
 }
 
 function _onTimelinePopoverKey(e) { if (e.key === 'Escape') timelinePopover.value = null }
 
 watch(timelinePopover, (val) => {
+  timelinePopoverCopied.value = false
   if (val) window.addEventListener('keydown', _onTimelinePopoverKey)
   else window.removeEventListener('keydown', _onTimelinePopoverKey)
 })
@@ -757,7 +763,10 @@ async function onNoteDeleteConfirm() {
         </div>
         <div class="px-3 py-2.5 text-xs text-tn-fg font-mono break-all whitespace-pre-wrap max-h-64 overflow-y-auto select-text leading-relaxed">{{ timelinePopover.value }}</div>
         <div class="px-3 pb-2.5">
-          <button @click="copyTimelinePopoverValue" class="text-xs text-tn-accent hover:text-tn-accent-hover transition-colors">Copy</button>
+          <button
+            @click="copyTimelinePopoverValue"
+            :class="['text-xs transition-colors', timelinePopoverCopied ? 'text-green-400' : 'text-tn-accent hover:text-tn-accent-hover']"
+          >{{ timelinePopoverCopied ? 'Copied!' : 'Copy' }}</button>
         </div>
       </div>
     </template>

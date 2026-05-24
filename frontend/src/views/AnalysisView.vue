@@ -64,6 +64,7 @@ function toggleExpand(id) {
 
 // Cell value popover (Option C)
 const popover = ref(null) // { col, value, x, y }
+const popoverCopied = ref(false)
 
 function openPopover(col, value, event) {
   event.stopPropagation()
@@ -74,12 +75,17 @@ function openPopover(col, value, event) {
 
 async function copyPopoverValue() {
   if (!popover.value?.value) return
-  try { await navigator.clipboard.writeText(popover.value.value) } catch {}
+  try {
+    await navigator.clipboard.writeText(popover.value.value)
+    popoverCopied.value = true
+    setTimeout(() => { popoverCopied.value = false }, 1500)
+  } catch {}
 }
 
 function _onPopoverKey(e) { if (e.key === 'Escape') popover.value = null }
 
 watch(popover, (val) => {
+  popoverCopied.value = false
   if (val) window.addEventListener('keydown', _onPopoverKey)
   else window.removeEventListener('keydown', _onPopoverKey)
 })
@@ -875,7 +881,7 @@ function sysInfoValue(row) {
     @close="artifactConfirmTarget = null"
   />
 
-  <!-- Cell value popover (Option C) -->
+  <!-- Cell value popover -->
   <Teleport to="body">
     <template v-if="popover">
       <div class="fixed inset-0 z-40" @click="popover = null" />
@@ -891,7 +897,10 @@ function sysInfoValue(row) {
         </div>
         <div class="px-3 py-2.5 text-xs text-tn-fg font-mono break-all whitespace-pre-wrap max-h-64 overflow-y-auto select-text leading-relaxed">{{ popover.value }}</div>
         <div class="px-3 pb-2.5">
-          <button @click="copyPopoverValue" class="text-xs text-tn-accent hover:text-tn-accent-hover transition-colors">Copy</button>
+          <button
+            @click="copyPopoverValue"
+            :class="['text-xs transition-colors', popoverCopied ? 'text-green-400' : 'text-tn-accent hover:text-tn-accent-hover']"
+          >{{ popoverCopied ? 'Copied!' : 'Copy' }}</button>
         </div>
       </div>
     </template>
