@@ -1,6 +1,6 @@
 import { defineStore } from 'pinia'
 
-export type Flavor = 'night' | 'storm'
+export type Flavor = 'night' | 'storm' | 'light'
 export type Accent = 'blue' | 'cyan' | 'purple' | 'green'
 
 export const useThemeStore = defineStore('theme', {

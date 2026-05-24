@@ -54,6 +54,38 @@
     --tn-border-strong:#545c7e;
   }
 
+  /* Light variant — Tokyo Night Day */
+  [data-flavor="light"] {
+    --tn-bg:          #e1e2e7;
+    --tn-bg-dark:     #d0d1d8;
+    --tn-surface:     #e9eaed;
+    --tn-raised:      #f0f0f4;
+    --tn-hover:       #d8d9e2;
+    --tn-border:      #c4c5d1;
+    --tn-border-strong:#a8aabb;
+
+    --tn-fg:          #343b58;
+    --tn-fg-dim:      #5a6180;
+    --tn-muted:       #8589af;
+    --tn-comment:     #9699a3;
+
+    /* Darker accent palette for legibility on light bg */
+    --tn-blue:        #2e7de9;
+    --tn-blue-2:      #007197;
+    --tn-cyan:        #007197;
+    --tn-purple:      #9854f1;
+    --tn-magenta:     #9854f1;
+    --tn-green:       #587539;
+    --tn-teal:        #38a89d;
+    --tn-orange:      #b15c00;
+    --tn-yellow:      #8c6c3e;
+    --tn-red:         #f52a65;
+    --tn-red-dark:    #c64343;
+
+    /* Hover darkens accent rather than lightening it */
+    --accent-hover: color-mix(in oklab, var(--accent) 80%, black);
+  }
+
   /* Accent swaps */
   [data-accent="cyan"]   { --accent: var(--tn-cyan);   }
   [data-accent="purple"] { --accent: var(--tn-purple); }
