@@ -35,9 +35,9 @@ def parse_bodyfile(uac_collection_path: str):
         for line in tqdm(f, total=total_lines, desc="Parsing bodyfile", unit="lines"):
             match = grok.match(line)
             if match:
-
+                raw_md5 = match.get('md5')
                 file_obj = File(
-                    md5=match.get('md5'),
+                    md5=None if (not raw_md5 or raw_md5 == '0') else raw_md5,
                     path=match.get('file_path'),
                     inode=int(match.get('inode', 0)) if match.get('inode') else None,
                     mode=match.get('mode_as_string'),
@@ -50,7 +50,13 @@ def parse_bodyfile(uac_collection_path: str):
                     crtime=_epoch_to_dt(match.get('crtime')),
                 )
                 files.append(file_obj)
-    
+
+    hash_map = parse_hash_executables(uac_collection_path)
+    if hash_map:
+        for f in files:
+            if f.path and f.path in hash_map:
+                f.md5 = hash_map[f.path]
+
     return files
 
 

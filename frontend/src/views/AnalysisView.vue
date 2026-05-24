@@ -410,7 +410,7 @@ const COL_DEFAULTS = {
   auth:       ['time', 'username', 'result', 'method', 'source', 'destination'],
   cmdhistory: ['time', 'user', 'command', 'history_file'],
   users:      ['username', 'uid', 'gid', 'gecos', 'home', 'shell'],
-  files:      ['path', 'mode', 'size', 'uid', 'gid', 'atime', 'mtime', 'ctime'],
+  files:      ['path', 'mode', 'size', 'uid', 'gid', 'md5', 'inode', 'atime', 'mtime', 'ctime', 'crtime'],
   cron:       ['source_type', 'username', 'minute', 'hour', 'day_of_month', 'month', 'day_of_week', 'command', 'source_file_modified', 'source_file'],
   services:   ['unit_name', 'unit_type', 'description', 'exec_start', 'run_user', 'service_type', 'restart', 'source_dir_type', 'source_file'],
   rcscripts:  ['path', 'source_type', 'run_context', 'username', 'shell', 'interpreter', 'file_size', 'source_file_modified'],

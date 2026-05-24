@@ -109,6 +109,67 @@ def _obj_to_dict(obj) -> dict[str, Any]:
     return result
 
 
+_FILE_TS_DESC = {
+    "mtime":  "FileModified",
+    "atime":  "FileAccessed",
+    "ctime":  "FileChanged",
+    "crtime": "FileCreated",
+}
+
+
+def _enrich_event(artifact_type: str, obj, file_attr: str | None = None, hostname: str | None = None) -> dict:
+    """Return enrichment fields (ts_description, hostname, source_ip, dest_ip, md5, assoc_user)."""
+    source_ip: str | None = None
+    dest_ip:   str | None = None
+    md5:       str | None = None
+    assoc_user: str | None = None
+    ts_description: str | None = None
+
+    if artifact_type == "processes":
+        ts_description = "ProcessStarted"
+        assoc_user = getattr(obj, "user", None)
+    elif artifact_type == "auth":
+        result = (getattr(obj, "result", None) or "").capitalize()
+        ts_description = f"Login:{result}" if result else "Auth:Event"
+        source_ip = getattr(obj, "source", None)
+        dest_ip   = getattr(obj, "destination", None)
+        assoc_user = getattr(obj, "username", None)
+    elif artifact_type == "cmdhistory":
+        ts_description = "HistoryEntry"
+        assoc_user = getattr(obj, "user", None)
+    elif artifact_type == "cron":
+        ts_description = "CronModified"
+        assoc_user = getattr(obj, "username", None)
+    elif artifact_type == "services":
+        ts_description = "ServiceModified"
+    elif artifact_type == "rcscripts":
+        ts_description = "RcScriptModified"
+        assoc_user = getattr(obj, "username", None)
+    elif artifact_type == "files":
+        ts_description = _FILE_TS_DESC.get(file_attr or "", "FileTimestamp")
+        md5 = getattr(obj, "md5", None)
+        uid = getattr(obj, "uid", None)
+        assoc_user = str(uid) if uid is not None else None
+    elif artifact_type == "netconns":
+        state = getattr(obj, "state", None)
+        ts_description = f"NetConn:{state}" if state else "NetConn"
+        dest_ip = getattr(obj, "remote_addr", None)
+    elif artifact_type == "syslog":
+        event_type = getattr(obj, "event_type", None)
+        ts_description = f"Syslog:{event_type}" if event_type else "Syslog:EventGenerated"
+        source_ip  = getattr(obj, "source_ip", None)
+        assoc_user = getattr(obj, "actor_user", None)
+
+    return dict(
+        ts_description=ts_description,
+        hostname=hostname,
+        source_ip=source_ip,
+        dest_ip=dest_ip,
+        md5=md5,
+        assoc_user=assoc_user,
+    )
+
+
 def _filter_by_tags(query, model, artifact_type: str, db: Session, collection_id: int, tag_ids_str: str | None):
     """Restrict query to rows tagged with any of the given tag IDs (OR logic)."""
     if not tag_ids_str:
@@ -141,6 +202,7 @@ def _get_timeline_python(
     limit: int,
     offset: int,
     db: Session,
+    hostname: str | None = None,
 ) -> "TimelineResponse":
     """Slow path: Python-level sort+filter for text/regex queries."""
     events: list[TimelineEvent] = []
@@ -153,7 +215,7 @@ def _get_timeline_python(
         for p in q.all():
             summary = _process_summary(p)
             if not _apply_filter(summary, filter_str, regex): continue
-            events.append(TimelineEvent(timestamp=p.started, artifact_type="processes", id=p.id, summary=summary, details=_obj_to_dict(p)))
+            events.append(TimelineEvent(timestamp=p.started, artifact_type="processes", id=p.id, summary=summary, details=_obj_to_dict(p), **_enrich_event("processes", p, hostname=hostname)))
 
     if "auth" in requested_types:
         q = db.query(Authentication).filter_by(collection_id=collection_id)
@@ -163,7 +225,7 @@ def _get_timeline_python(
         for a in q.all():
             summary = _auth_summary(a)
             if not _apply_filter(summary, filter_str, regex): continue
-            events.append(TimelineEvent(timestamp=a.time, artifact_type="auth", id=a.id, summary=summary, details=_obj_to_dict(a)))
+            events.append(TimelineEvent(timestamp=a.time, artifact_type="auth", id=a.id, summary=summary, details=_obj_to_dict(a), **_enrich_event("auth", a, hostname=hostname)))
 
     if "cmdhistory" in requested_types:
         q = db.query(CommandHistory).filter_by(collection_id=collection_id)
@@ -173,7 +235,7 @@ def _get_timeline_python(
         for c in q.all():
             summary = _cmdhistory_summary(c)
             if not _apply_filter(summary, filter_str, regex): continue
-            events.append(TimelineEvent(timestamp=c.time, artifact_type="cmdhistory", id=c.id, summary=summary, details=_obj_to_dict(c)))
+            events.append(TimelineEvent(timestamp=c.time, artifact_type="cmdhistory", id=c.id, summary=summary, details=_obj_to_dict(c), **_enrich_event("cmdhistory", c, hostname=hostname)))
 
     if "cron" in requested_types:
         q = db.query(CronJob).filter_by(collection_id=collection_id)
@@ -183,9 +245,9 @@ def _get_timeline_python(
         for cj in q.all():
             if cj.source_file_modified is None and (start or end): continue
             user = f"{cj.username}: " if cj.username else ""
-            summary = f"[{cj.source_type or 'cron'}] {user}{cj.command or ''}"
+            summary = f"{user}{cj.command or ''}".strip()
             if not _apply_filter(summary, filter_str, regex): continue
-            events.append(TimelineEvent(timestamp=cj.source_file_modified, artifact_type="cron", id=cj.id, summary=summary, details=_obj_to_dict(cj)))
+            events.append(TimelineEvent(timestamp=cj.source_file_modified, artifact_type="cron", id=cj.id, summary=summary, details=_obj_to_dict(cj), **_enrich_event("cron", cj, hostname=hostname)))
 
     if "services" in requested_types:
         q = db.query(SystemdService).filter_by(collection_id=collection_id)
@@ -196,9 +258,9 @@ def _get_timeline_python(
             if svc.source_file_modified is None and (start or end): continue
             label = f"{svc.unit_name or ''}.{svc.unit_type or ''}".strip('.')
             detail = svc.description or svc.exec_start or ''
-            summary = f"[{svc.source_dir_type or 'services'}] {label}: {detail}".rstrip(': ')
+            summary = f"{label}: {detail}".rstrip(': ')
             if not _apply_filter(summary, filter_str, regex): continue
-            events.append(TimelineEvent(timestamp=svc.source_file_modified, artifact_type="services", id=svc.id, summary=summary, details=_obj_to_dict(svc)))
+            events.append(TimelineEvent(timestamp=svc.source_file_modified, artifact_type="services", id=svc.id, summary=summary, details=_obj_to_dict(svc), **_enrich_event("services", svc, hostname=hostname)))
 
     if "rcscripts" in requested_types:
         q = db.query(RcScript).filter_by(collection_id=collection_id)
@@ -208,20 +270,20 @@ def _get_timeline_python(
         for rc in q.all():
             if rc.source_file_modified is None and (start or end): continue
             user_part = f"{rc.username}: " if rc.username else ""
-            summary = f"[{rc.source_type or 'rcscript'}] {user_part}{rc.path or ''}"
+            summary = f"{user_part}{rc.path or ''}".strip()
             if not _apply_filter(summary, filter_str, regex): continue
-            events.append(TimelineEvent(timestamp=rc.source_file_modified, artifact_type="rcscripts", id=rc.id, summary=summary, details=_obj_to_dict(rc)))
+            events.append(TimelineEvent(timestamp=rc.source_file_modified, artifact_type="rcscripts", id=rc.id, summary=summary, details=_obj_to_dict(rc), **_enrich_event("rcscripts", rc, hostname=hostname)))
 
     if "files" in requested_types:
         q = db.query(File).filter_by(collection_id=collection_id)
         q = _filter_by_tags(q, File, "files", db, collection_id, tag_ids)
         for f in q.all():
-            for attr, lbl in [("mtime","M"),("atime","A"),("ctime","C"),("crtime","B")]:
+            for attr in ("mtime", "atime", "ctime", "crtime"):
                 ts = getattr(f, attr)
                 if ts is None or (start and ts < start) or (end and ts > end): continue
-                summary = f"[{lbl}] {f.path or ''}"
+                summary = f.path or ''
                 if not _apply_filter(summary, filter_str, regex): continue
-                events.append(TimelineEvent(timestamp=ts, artifact_type="files", id=f.id, summary=summary, details=_obj_to_dict(f)))
+                events.append(TimelineEvent(timestamp=ts, artifact_type="files", id=f.id, summary=summary, details=_obj_to_dict(f), **_enrich_event("files", f, file_attr=attr, hostname=hostname)))
 
     if "netconns" in requested_types and not start and not end:
         q = db.query(NetworkConnection).filter_by(collection_id=collection_id)
@@ -229,7 +291,7 @@ def _get_timeline_python(
         for nc in q.all():
             summary = f"{nc.proto} {nc.local_addr}:{nc.local_port} → {nc.remote_addr}:{nc.remote_port} [{nc.state}]"
             if not _apply_filter(summary, filter_str, regex): continue
-            events.append(TimelineEvent(timestamp=None, artifact_type="netconns", id=nc.id, summary=summary, details=_obj_to_dict(nc)))
+            events.append(TimelineEvent(timestamp=None, artifact_type="netconns", id=nc.id, summary=summary, details=_obj_to_dict(nc), **_enrich_event("netconns", nc, hostname=hostname)))
 
     if "syslog" in requested_types:
         q = db.query(SyslogEntry).filter_by(collection_id=collection_id)
@@ -239,7 +301,7 @@ def _get_timeline_python(
         for s in q.all():
             summary = _syslog_summary(s)
             if not _apply_filter(summary, filter_str, regex): continue
-            events.append(TimelineEvent(timestamp=s.timestamp, artifact_type="syslog", id=s.id, summary=summary, details=_obj_to_dict(s)))
+            events.append(TimelineEvent(timestamp=s.timestamp, artifact_type="syslog", id=s.id, summary=summary, details=_obj_to_dict(s), **_enrich_event("syslog", s, hostname=hostname)))
 
     events.sort(key=lambda e: (e.timestamp is None, e.timestamp or datetime.min))
     total = len(events)
@@ -255,6 +317,7 @@ def _get_timeline_sql(
     limit: int,
     offset: int,
     db: Session,
+    hostname: str | None = None,
 ) -> "TimelineResponse":
     """Fast path: SQL UNION ALL + ORDER BY + LIMIT/OFFSET, hydrate only the page."""
 
@@ -393,43 +456,46 @@ def _get_timeline_sql(
         atype, eid = row.atype, row.eid
         if atype == "processes":
             p = objs.get(("processes", eid))
-            if p: events.append(TimelineEvent(timestamp=p.started, artifact_type="processes", id=p.id, summary=_process_summary(p), details=_obj_to_dict(p)))
+            if p: events.append(TimelineEvent(timestamp=p.started, artifact_type="processes", id=p.id, summary=_process_summary(p), details=_obj_to_dict(p), **_enrich_event("processes", p, hostname=hostname)))
         elif atype == "auth":
             a = objs.get(("auth", eid))
-            if a: events.append(TimelineEvent(timestamp=a.time, artifact_type="auth", id=a.id, summary=_auth_summary(a), details=_obj_to_dict(a)))
+            if a: events.append(TimelineEvent(timestamp=a.time, artifact_type="auth", id=a.id, summary=_auth_summary(a), details=_obj_to_dict(a), **_enrich_event("auth", a, hostname=hostname)))
         elif atype == "cmdhistory":
             c = objs.get(("cmdhistory", eid))
-            if c: events.append(TimelineEvent(timestamp=c.time, artifact_type="cmdhistory", id=c.id, summary=_cmdhistory_summary(c), details=_obj_to_dict(c)))
+            if c: events.append(TimelineEvent(timestamp=c.time, artifact_type="cmdhistory", id=c.id, summary=_cmdhistory_summary(c), details=_obj_to_dict(c), **_enrich_event("cmdhistory", c, hostname=hostname)))
         elif atype == "cron":
             cj = objs.get(("cron", eid))
             if cj:
                 u = f"{cj.username}: " if cj.username else ""
-                events.append(TimelineEvent(timestamp=cj.source_file_modified, artifact_type="cron", id=cj.id, summary=f"[{cj.source_type or 'cron'}] {u}{cj.command or ''}", details=_obj_to_dict(cj)))
+                summary = f"{u}{cj.command or ''}".strip()
+                events.append(TimelineEvent(timestamp=cj.source_file_modified, artifact_type="cron", id=cj.id, summary=summary, details=_obj_to_dict(cj), **_enrich_event("cron", cj, hostname=hostname)))
         elif atype == "services":
             svc = objs.get(("services", eid))
             if svc:
                 lbl = f"{svc.unit_name or ''}.{svc.unit_type or ''}".strip('.')
                 detail = svc.description or svc.exec_start or ''
-                events.append(TimelineEvent(timestamp=svc.source_file_modified, artifact_type="services", id=svc.id, summary=f"[{svc.source_dir_type or 'services'}] {lbl}: {detail}".rstrip(': '), details=_obj_to_dict(svc)))
+                summary = f"{lbl}: {detail}".rstrip(': ')
+                events.append(TimelineEvent(timestamp=svc.source_file_modified, artifact_type="services", id=svc.id, summary=summary, details=_obj_to_dict(svc), **_enrich_event("services", svc, hostname=hostname)))
         elif atype == "rcscripts":
             rc = objs.get(("rcscripts", eid))
             if rc:
                 user_part = f"{rc.username}: " if rc.username else ""
-                events.append(TimelineEvent(timestamp=rc.source_file_modified, artifact_type="rcscripts", id=rc.id, summary=f"[{rc.source_type or 'rcscript'}] {user_part}{rc.path or ''}", details=_obj_to_dict(rc)))
+                summary = f"{user_part}{rc.path or ''}".strip()
+                events.append(TimelineEvent(timestamp=rc.source_file_modified, artifact_type="rcscripts", id=rc.id, summary=summary, details=_obj_to_dict(rc), **_enrich_event("rcscripts", rc, hostname=hostname)))
         elif atype in _FILE_ATTR:
-            lbl, attr = _FILE_ATTR[atype]
+            _, attr = _FILE_ATTR[atype]
             f = objs.get(("file", eid))
             if f:
                 ts = getattr(f, attr)
-                events.append(TimelineEvent(timestamp=ts, artifact_type="files", id=f.id, summary=f"[{lbl}] {f.path or ''}", details=_obj_to_dict(f)))
+                events.append(TimelineEvent(timestamp=ts, artifact_type="files", id=f.id, summary=f.path or '', details=_obj_to_dict(f), **_enrich_event("files", f, file_attr=attr, hostname=hostname)))
         elif atype == "netconns":
             nc = objs.get(("netconns", eid))
             if nc:
-                events.append(TimelineEvent(timestamp=None, artifact_type="netconns", id=nc.id, summary=f"{nc.proto} {nc.local_addr}:{nc.local_port} → {nc.remote_addr}:{nc.remote_port} [{nc.state}]", details=_obj_to_dict(nc)))
+                events.append(TimelineEvent(timestamp=None, artifact_type="netconns", id=nc.id, summary=f"{nc.proto} {nc.local_addr}:{nc.local_port} → {nc.remote_addr}:{nc.remote_port} [{nc.state}]", details=_obj_to_dict(nc), **_enrich_event("netconns", nc, hostname=hostname)))
         elif atype == "syslog":
             s = objs.get(("syslog", eid))
             if s:
-                events.append(TimelineEvent(timestamp=s.timestamp, artifact_type="syslog", id=s.id, summary=_syslog_summary(s), details=_obj_to_dict(s)))
+                events.append(TimelineEvent(timestamp=s.timestamp, artifact_type="syslog", id=s.id, summary=_syslog_summary(s), details=_obj_to_dict(s), **_enrich_event("syslog", s, hostname=hostname)))
 
     return TimelineResponse(total=total, offset=offset, limit=limit, events=events)
 
@@ -447,12 +513,13 @@ def get_timeline(
     offset: int = Query(default=0, ge=0),
     db: Session = Depends(get_db),
 ):
-    _require_collection(collection_id, db)
+    col = _require_collection(collection_id, db)
     requested_types = {t.strip() for t in types.split(",")} if types else ALL_TYPES
+    hostname = col.hostname
 
     if filter or regex:
-        return _get_timeline_python(collection_id, start, end, requested_types, filter, regex, tag_ids, limit, offset, db)
-    return _get_timeline_sql(collection_id, start, end, requested_types, tag_ids, limit, offset, db)
+        return _get_timeline_python(collection_id, start, end, requested_types, filter, regex, tag_ids, limit, offset, db, hostname=hostname)
+    return _get_timeline_sql(collection_id, start, end, requested_types, tag_ids, limit, offset, db, hostname=hostname)
 
 
 # ── Per-artifact endpoints ────────────────────────────────────────────────────

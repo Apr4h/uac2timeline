@@ -2,6 +2,7 @@
 import { ref, computed, watch, onUnmounted } from 'vue'
 import { useTagsStore } from '../stores/tags.js'
 import { useNotesStore } from '../stores/notes.js'
+import { useColumnPrefs } from '../composables/useColumnPrefs.js'
 import TagBadge from './TagBadge.vue'
 import TagPicker from './TagPicker.vue'
 import ContextMenu from './ContextMenu.vue'
@@ -184,28 +185,55 @@ function fmtTs(ts) {
   return new Date(ts).toISOString().replace('T', ' ').replace('Z', '').slice(0, 19)
 }
 
-// ── Column resize ─────────────────────────────────────────────────────────────
-const COL_WIDTHS_KEY = 'uac_timeline_colwidths'
-const COL_DEFAULTS = { timestamp: 176, type: 112, summary: 400, note: 192, tags: 224 }
+// ── Column system (useColumnPrefs) ────────────────────────────────────────────
+const TIMELINE_COLS = ['timestamp', 'type', 'hostname', 'ts_description', 'summary', 'source_ip', 'dest_ip', 'md5', 'assoc_user']
 
-function loadColWidths() {
-  try {
-    const raw = localStorage.getItem(COL_WIDTHS_KEY)
-    return raw ? { ...COL_DEFAULTS, ...JSON.parse(raw) } : { ...COL_DEFAULTS }
-  } catch { return { ...COL_DEFAULTS } }
+const TIMELINE_COL_DEFAULT_W = {
+  timestamp:      176,
+  type:           112,
+  hostname:       140,
+  ts_description: 160,
+  summary:        320,
+  source_ip:      140,
+  dest_ip:        140,
+  md5:            120,
+  assoc_user:     120,
 }
 
-const colWidths = ref(loadColWidths())
+const colPrefs = useColumnPrefs({ timeline: TIMELINE_COLS })
+const activeCols = computed(() => colPrefs.getOrder('timeline'))
+const colWidths  = computed(() => colPrefs.getWidths('timeline'))
+
+function colW(col) {
+  return colWidths.value[col] ?? TIMELINE_COL_DEFAULT_W[col] ?? 160
+}
 
 const tableWidth = computed(() => {
-  const w = colWidths.value
-  return 32 + w.timestamp + w.type + w.summary + w.note + w.tags  // 32 = checkbox (2rem)
+  const dynW = activeCols.value.reduce((sum, col) => sum + colW(col), 0)
+  return 32 + dynW + 192 + 224  // checkbox + dynamic cols + note + tags
 })
 
-function saveColWidths() {
-  try { localStorage.setItem(COL_WIDTHS_KEY, JSON.stringify(colWidths.value)) } catch {}
+// Column drag-to-reorder
+const dragFromIdx = ref(null)
+const dragOverIdx = ref(null)
+
+function onColDragStart(idx, event) {
+  dragFromIdx.value = idx
+  event.dataTransfer.effectAllowed = 'move'
 }
 
+function onColDrop(toIdx) {
+  if (dragFromIdx.value !== null) colPrefs.reorder('timeline', dragFromIdx.value, toIdx)
+  dragFromIdx.value = null
+  dragOverIdx.value = null
+}
+
+function onColDragEnd() {
+  dragFromIdx.value = null
+  dragOverIdx.value = null
+}
+
+// Column resize
 let _resizeCol    = null
 let _resizeStartX = 0
 let _resizeStartW = 0
@@ -220,17 +248,27 @@ function startColResize(col, event) {
 
 function onColResizeMove(event) {
   if (!_resizeCol) return
-  colWidths.value = {
-    ...colWidths.value,
-    [_resizeCol]: Math.max(40, Math.round(_resizeStartW + (event.clientX - _resizeStartX))),
-  }
+  colPrefs.setWidth('timeline', _resizeCol, _resizeStartW + (event.clientX - _resizeStartX))
 }
 
 function onColResizeUp() {
-  if (_resizeCol) saveColWidths()
   _resizeCol = null
   document.removeEventListener('mousemove', onColResizeMove)
   document.removeEventListener('mouseup',   onColResizeUp)
+}
+
+// Cell value rendering
+function getDisplayVal(ev, col) {
+  if (col === 'timestamp') return fmtTs(ev.timestamp)
+  if (col === 'type')      return ev.artifact_type
+  const v = ev[col]
+  return (v !== null && v !== undefined) ? String(v) : '—'
+}
+
+function getRawVal(ev, col) {
+  if (col === 'timestamp') return ev.timestamp
+  if (col === 'type')      return ev.artifact_type
+  return ev[col]
 }
 
 onUnmounted(() => {
@@ -262,7 +300,6 @@ watch(timelinePopover, (val) => {
 })
 
 // ── File preview ──────────────────────────────────────────────────────────────
-// Maps artifact_type → the details key that holds the logical filesystem path
 const FILE_PREVIEW_FIELD = {
   rcscripts:  'path',
   cron:       'source_file',
@@ -285,7 +322,6 @@ function openContextMenu(ev, mouseEvent) {
   const previewPath = getPreviewPath(ev)
   const isBulkCtx = selected.value.has(rowKey(ev)) && selected.value.size > 1
 
-  // ── Note items ──────────────────────────────────────────────────────────────
   const noteItems = []
   if (isBulkCtx) {
     const rows = (props.events ?? [])
@@ -423,15 +459,16 @@ async function onNoteDeleteConfirm() {
       <table class="min-w-full text-sm border-collapse table-fixed" :style="{ width: tableWidth + 'px' }">
         <colgroup>
           <col style="width: 2rem" />
-          <col :style="{ width: `${colWidths.timestamp}px` }" />
-          <col :style="{ width: `${colWidths.type}px` }" />
-          <col :style="{ width: `${colWidths.summary}px` }" />
-          <col :style="{ width: `${colWidths.note}px` }" />
-          <col :style="{ width: `${colWidths.tags}px` }" />
+          <col
+            v-for="col in activeCols" :key="col"
+            :style="{ width: `${colW(col)}px` }"
+          />
+          <col style="width: 12rem" />
+          <col style="width: 14rem" />
         </colgroup>
         <thead class="sticky top-0 bg-tn-surface border-b border-tn-border z-10">
           <tr>
-            <th class="w-8 px-2 py-2">
+            <th class="sticky left-0 z-20 bg-tn-surface border-r border-tn-border px-2 py-2">
               <input
                 type="checkbox"
                 :checked="allSelected"
@@ -440,49 +477,46 @@ async function onNoteDeleteConfirm() {
                 class="accent-tn-accent cursor-pointer"
               />
             </th>
-            <th class="relative text-left px-3 py-2 text-xs text-tn-fg-dim font-medium overflow-hidden whitespace-nowrap select-none">
-              Timestamp
-              <span class="col-resize-handle" draggable="false" @mousedown.stop.prevent="startColResize('timestamp', $event)" />
+            <th
+              v-for="(col, idx) in activeCols" :key="col"
+              draggable="true"
+              @dragstart="onColDragStart(idx, $event)"
+              @dragover.prevent="dragOverIdx = idx"
+              @dragleave="dragOverIdx = null"
+              @drop.prevent="onColDrop(idx)"
+              @dragend="onColDragEnd"
+              class="relative text-left px-3 py-2 text-xs text-tn-fg-dim font-medium whitespace-nowrap overflow-hidden select-none cursor-grab"
+              :class="{ 'bg-tn-selection': dragOverIdx === idx }"
+            >
+              {{ col }}
+              <span class="col-resize-handle" draggable="false" @mousedown.stop.prevent="startColResize(col, $event)" />
             </th>
-            <th class="relative text-left px-3 py-2 text-xs text-tn-fg-dim font-medium overflow-hidden whitespace-nowrap select-none">
-              Type
-              <span class="col-resize-handle" draggable="false" @mousedown.stop.prevent="startColResize('type', $event)" />
-            </th>
-            <th class="relative text-left px-3 py-2 text-xs text-tn-fg-dim font-medium overflow-hidden whitespace-nowrap select-none">
-              Summary
-              <span class="col-resize-handle" draggable="false" @mousedown.stop.prevent="startColResize('summary', $event)" />
-            </th>
-            <th class="relative text-left px-3 py-2 text-xs text-tn-fg-dim font-medium overflow-hidden whitespace-nowrap select-none">
-              Note
-              <span class="col-resize-handle" draggable="false" @mousedown.stop.prevent="startColResize('note', $event)" />
-            </th>
-            <th class="relative text-left px-3 py-2 text-xs text-tn-fg-dim font-medium overflow-hidden whitespace-nowrap select-none">
-              Tags
-              <span class="col-resize-handle" draggable="false" @mousedown.stop.prevent="startColResize('tags', $event)" />
-            </th>
+            <th class="text-left px-3 py-2 text-xs text-tn-fg-dim font-medium whitespace-nowrap select-none">note</th>
+            <th class="text-left px-3 py-2 text-xs text-tn-fg-dim font-medium whitespace-nowrap select-none">tags</th>
           </tr>
         </thead>
         <tbody>
           <template v-if="loading">
             <tr>
-              <td colspan="6" class="px-3 py-8 text-center text-tn-muted">Loading…</td>
+              <td colspan="100" class="px-3 py-8 text-center text-tn-muted">Loading…</td>
             </tr>
           </template>
           <template v-else-if="!events?.length">
             <tr>
-              <td colspan="6" class="px-3 py-8 text-center text-tn-muted">No events match the current filters.</td>
+              <td colspan="100" class="px-3 py-8 text-center text-tn-muted">No events match the current filters.</td>
             </tr>
           </template>
           <template v-else v-for="ev in events" :key="rowKey(ev)">
             <tr
               :class="[
-                'border-b border-tn-border cursor-pointer',
+                'group border-b border-tn-border cursor-pointer',
                 selected.has(rowKey(ev)) ? 'bg-tn-selection hover:bg-tn-selection-hover' : 'hover:bg-tn-raised/50',
               ]"
               @click="toggleRow(rowKey(ev))"
               @contextmenu.prevent="openContextMenu(ev, $event)"
             >
-              <td class="w-8 px-2 py-1.5" @click.stop>
+              <td class="sticky left-0 z-10 border-r border-tn-border px-2 py-1.5" @click.stop
+                  :class="selected.has(rowKey(ev)) ? 'bg-tn-selection group-hover:bg-tn-selection-hover' : 'bg-tn-bg group-hover:bg-tn-raised/50'">
                 <input
                   type="checkbox"
                   :checked="selected.has(rowKey(ev))"
@@ -491,27 +525,39 @@ async function onNoteDeleteConfirm() {
                   class="accent-tn-accent cursor-pointer"
                 />
               </td>
-              <td class="px-3 py-1.5 font-mono text-xs text-tn-fg-dim truncate max-w-0">{{ fmtTs(ev.timestamp) }}</td>
-              <td class="px-3 py-1.5">
-                <span :class="['text-xs font-mono px-1.5 py-0.5 rounded border', typeClass(ev.artifact_type)]">
-                  {{ ev.artifact_type }}
-                </span>
+
+              <!-- Dynamic columns -->
+              <td v-for="col in activeCols" :key="col"
+                  class="px-3 py-1.5 max-w-0 overflow-hidden"
+                  :class="col === 'type' ? '' : 'group/cell'">
+                <!-- Type: badge -->
+                <template v-if="col === 'type'">
+                  <span :class="['text-xs font-mono px-1.5 py-0.5 rounded border', typeClass(ev.artifact_type)]">
+                    {{ ev.artifact_type }}
+                  </span>
+                </template>
+                <!-- All other columns: text + popover trigger -->
+                <template v-else>
+                  <div class="flex items-center min-w-0 gap-1">
+                    <span
+                      class="truncate flex-1 min-w-0 font-mono text-xs"
+                      :class="col === 'timestamp' ? 'text-tn-fg-dim' : 'text-tn-fg'"
+                    >{{ getDisplayVal(ev, col) }}</span>
+                    <button
+                      v-if="getRawVal(ev, col) !== null && getRawVal(ev, col) !== undefined && String(getRawVal(ev, col)).length > 0"
+                      @click.stop="openTimelinePopover(col, getDisplayVal(ev, col), $event)"
+                      class="shrink-0 opacity-0 group-hover/cell:opacity-100 transition-opacity text-tn-muted hover:text-tn-fg"
+                      title="View full value"
+                    >
+                      <svg class="w-3 h-3" viewBox="0 0 12 12" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
+                        <path d="M7.5 1.5h3v3m0-3L6 6M4.5 10.5h-3v-3"/>
+                      </svg>
+                    </button>
+                  </div>
+                </template>
               </td>
-              <td class="px-3 py-1.5 font-mono text-xs max-w-0 overflow-hidden group/cell">
-                <div class="flex items-center min-w-0 gap-1">
-                  <span class="truncate flex-1 min-w-0 text-tn-fg">{{ ev.summary }}</span>
-                  <button
-                    v-if="ev.summary"
-                    @click.stop="openTimelinePopover('summary', ev.summary, $event)"
-                    class="shrink-0 opacity-0 group-hover/cell:opacity-100 transition-opacity text-tn-muted hover:text-tn-fg"
-                    title="View full summary"
-                  >
-                    <svg class="w-3 h-3" viewBox="0 0 12 12" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
-                      <path d="M7.5 1.5h3v3m0-3L6 6M4.5 10.5h-3v-3"/>
-                    </svg>
-                  </button>
-                </div>
-              </td>
+
+              <!-- Note -->
               <td class="px-3 py-1.5 max-w-0 overflow-hidden" @click.stop>
                 <span
                   v-if="notesStore.getNoteForRow(ev.artifact_type, ev.id)"
@@ -519,6 +565,8 @@ async function onNoteDeleteConfirm() {
                   :title="notesStore.getNoteForRow(ev.artifact_type, ev.id)?.content"
                 >{{ notesStore.getNoteForRow(ev.artifact_type, ev.id)?.content }}</span>
               </td>
+
+              <!-- Tags -->
               <td class="px-3 py-1.5 relative" @click.stop>
                 <div class="flex items-center gap-1 flex-wrap">
                   <TagBadge
@@ -549,7 +597,7 @@ async function onNoteDeleteConfirm() {
 
             <!-- Expanded details row -->
             <tr v-if="expanded.has(rowKey(ev))" class="border-b border-tn-border bg-tn-bg/60">
-              <td colspan="6" class="px-4 py-3">
+              <td colspan="100" class="px-4 py-3">
                 <div class="grid grid-cols-2 gap-x-6 gap-y-1">
                   <template v-for="(val, key) in ev.details" :key="key">
                     <template v-if="val !== null && val !== undefined && val !== ''">
@@ -599,21 +647,28 @@ async function onNoteDeleteConfirm() {
 
     <div class="border-t border-tn-border px-4 py-2 flex items-center justify-between text-xs text-tn-fg-dim">
       <span>Showing {{ events?.length ?? 0 }} of {{ total ?? 0 }} events</span>
-      <button
-        v-if="events?.length < total"
-        @click="emit('loadMore')"
-        :disabled="loadingMore"
-        :class="[
-          'px-3 py-1 rounded text-xs transition-colors flex items-center gap-1.5',
-          loadingMore ? 'bg-tn-raised text-tn-muted cursor-default' : 'bg-tn-hover hover:bg-tn-border-strong text-tn-fg-dim',
-        ]"
-      >
-        <span
-          v-if="loadingMore"
-          class="w-3 h-3 rounded-full border-2 border-tn-muted border-t-tn-accent animate-spin"
-        />
-        {{ loadingMore ? 'Loading…' : 'Load more' }}
-      </button>
+      <div class="flex items-center gap-4">
+        <button
+          v-if="events?.length < total"
+          @click="emit('loadMore')"
+          :disabled="loadingMore"
+          :class="[
+            'px-3 py-1 rounded text-xs transition-colors flex items-center gap-1.5',
+            loadingMore ? 'bg-tn-raised text-tn-muted cursor-default' : 'bg-tn-hover hover:bg-tn-border-strong text-tn-fg-dim',
+          ]"
+        >
+          <span
+            v-if="loadingMore"
+            class="w-3 h-3 rounded-full border-2 border-tn-muted border-t-tn-accent animate-spin"
+          />
+          {{ loadingMore ? 'Loading…' : 'Load more' }}
+        </button>
+        <button
+          @click="colPrefs.reset('timeline')"
+          class="text-tn-muted hover:text-tn-fg-dim transition-colors"
+          title="Reset column order and widths"
+        >Reset columns</button>
+      </div>
     </div>
 
     <!-- Context menu -->

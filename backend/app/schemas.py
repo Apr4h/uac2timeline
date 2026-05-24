@@ -166,6 +166,12 @@ class TimelineEvent(BaseModel):
     artifact_type: str
     id: int
     summary: str
+    ts_description: Optional[str] = None
+    hostname: Optional[str] = None
+    source_ip: Optional[str] = None
+    dest_ip: Optional[str] = None
+    md5: Optional[str] = None
+    assoc_user: Optional[str] = None
     details: dict[str, Any]
 
 
