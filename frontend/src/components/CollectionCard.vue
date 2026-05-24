@@ -23,6 +23,34 @@ const statusColor = computed(() => {
   }[job.value.status] || 'text-tn-fg-dim'
 })
 
+// Map artifact_type → job status for per-pill coloring
+const jobStatusByType = computed(() => {
+  const m = {}
+  for (const aj of job.value?.artifact_jobs ?? []) m[aj.artifact_type] = aj.status
+  return m
+})
+
+const ARTIFACTS = [
+  { type: 'processes',  label: 'proc',    key: 'process_count' },
+  { type: 'netconns',   label: 'net',     key: 'netconn_count' },
+  { type: 'auth',       label: 'auth',    key: 'auth_count' },
+  { type: 'cmdhistory', label: 'cmd',     key: 'cmdhistory_count' },
+  { type: 'users',      label: 'users',   key: 'user_count' },
+  { type: 'cron',       label: 'cron',    key: 'cron_count' },
+  { type: 'systemd',    label: 'services',     key: 'systemd_count' },
+  { type: 'rcscripts',  label: 'rcscripts', key: 'rcscripts_count' },
+  { type: 'syslog',     label: 'syslog',  key: 'syslog_count' },
+]
+
+function artifactPillClass(type) {
+  const s = jobStatusByType.value[type]
+  if (s === 'completed') return 'bg-green-900/40 text-green-300'
+  if (s === 'running')   return 'bg-tn-selection text-tn-accent'
+  if (s === 'failed')    return 'bg-red-900/40 text-red-300'
+  if (s === 'pending')   return 'bg-yellow-900/30 text-yellow-400'
+  return 'bg-tn-raised text-tn-fg-dim'
+}
+
 const statusLabel = computed(() => job.value?.status ?? 'no job')
 
 let pollTimer = null
@@ -62,6 +90,7 @@ async function deleteCollection() {
       <div>
         <div class="font-mono font-medium text-tn-fg truncate">{{ collection.hostname }}</div>
         <div class="text-xs text-tn-muted mt-0.5">{{ collection.os || 'Unknown OS' }} · TZ {{ collection.timezone_setting || '?' }}</div>
+        <div v-if="collection.primary_ip_address" class="text-xs text-tn-muted font-mono">{{ collection.primary_ip_address }}</div>
       </div>
       <span :class="['text-xs font-mono px-2 py-0.5 rounded-full border', statusColor,
         job?.status === 'completed' ? 'border-green-800 bg-green-950/30' :
@@ -72,25 +101,11 @@ async function deleteCollection() {
       </span>
     </div>
 
-    <!-- Artifact counts -->
-    <div class="grid grid-cols-5 gap-1 text-center">
-      <div v-for="[label, count] in [['proc', collection.process_count], ['net', collection.netconn_count], ['auth', collection.auth_count], ['cmd', collection.cmdhistory_count], ['users', collection.user_count]]"
-           :key="label" class="bg-tn-raised rounded p-1.5">
-        <div class="text-sm font-mono text-tn-fg">{{ count }}</div>
-        <div class="text-xs text-tn-muted">{{ label }}</div>
-      </div>
-    </div>
-
-    <!-- Per-artifact job status pills -->
-    <div v-if="job?.artifact_jobs?.length" class="flex flex-wrap gap-1">
-      <span v-for="aj in job.artifact_jobs" :key="aj.id"
-            :class="['text-xs px-2 py-0.5 rounded font-mono',
-              aj.status === 'completed' ? 'bg-green-900/50 text-green-300' :
-              aj.status === 'running'   ? 'bg-tn-selection text-tn-accent' :
-              aj.status === 'failed'    ? 'bg-red-900/50 text-red-300' :
-              'bg-tn-raised text-tn-fg-dim']">
-        {{ aj.artifact_type }}
-        <span v-if="aj.record_count" class="opacity-60">·{{ aj.record_count }}</span>
+    <!-- Artifact counts (colored by job status when a job is present) -->
+    <div class="flex flex-wrap gap-1">
+      <span v-for="a in ARTIFACTS" :key="a.type"
+            :class="['text-xs px-2 py-0.5 rounded font-mono', artifactPillClass(a.type)]">
+        {{ a.label }}<span class="opacity-60 ml-0.5">·{{ collection[a.key] ?? 0 }}</span>
       </span>
     </div>
 
