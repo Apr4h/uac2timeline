@@ -2,13 +2,17 @@
 import { ref, computed, onUnmounted } from 'vue'
 import { useRouter } from 'vue-router'
 import { useCollectionsStore } from '../stores/collections.js'
+import { useTagsStore } from '../stores/tags.js'
+import ExportDialog from './ExportDialog.vue'
 
 const props = defineProps({ collection: Object })
 const store = useCollectionsStore()
 const router = useRouter()
 
+const tagsStore = useTagsStore()
 const confirmDelete = ref(false)
 const deleting = ref(false)
+const showExport = ref(false)
 
 const job = computed(() => props.collection.latest_job)
 
@@ -117,6 +121,14 @@ async function deleteCollection() {
       >
         Analyze
       </button>
+      <button
+        v-if="tagsStore.tags.length > 0"
+        @click="showExport = true"
+        class="px-3 py-1.5 rounded bg-tn-raised hover:bg-tn-hover border border-tn-border text-tn-fg-dim hover:text-tn-fg text-sm transition-colors"
+        title="Export tagged rows to Excel"
+      >
+        Export
+      </button>
       <button v-if="!confirmDelete"
         @click="confirmDelete = true"
         class="px-3 py-1.5 rounded bg-tn-hover hover:bg-red-900 text-sm text-tn-fg-dim hover:text-red-300"
@@ -132,4 +144,11 @@ async function deleteCollection() {
       </template>
     </div>
   </div>
+
+  <ExportDialog
+    v-if="showExport"
+    :collection-id="collection.id"
+    :collection-hostname="collection.hostname"
+    @close="showExport = false"
+  />
 </template>
