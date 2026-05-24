@@ -28,7 +28,7 @@ from backend.app.schemas import (
 
 router = APIRouter()
 
-VALID_ARTIFACT_TYPES = {"processes", "auth", "cmdhistory", "netconns", "files", "users", "cron", "services", "rcscripts"}
+VALID_ARTIFACT_TYPES = {"processes", "auth", "cmdhistory", "netconns", "files", "users", "cron", "services", "rcscripts", "syslog"}
 VALID_COLORS = {"red", "orange", "yellow", "green", "teal", "blue", "purple", "pink", "gray"}
 
 
@@ -153,7 +153,7 @@ def remove_taggings(body: TaggingRemove, db: Session = Depends(get_db)):
 
 def _resolve_collection_id(artifact_type: str, artifact_ids: list[int], db: Session) -> int:
     """Look up the collection_id for the given artifact rows."""
-    from uac_parser.models import Process, NetworkConnection, Authentication, CommandHistory, File, User, CronJob, SystemdService, RcScript
+    from uac_parser.models import Process, NetworkConnection, Authentication, CommandHistory, File, User, CronJob, SystemdService, RcScript, SyslogEntry
     _MODEL_MAP = {
         "processes":  Process,
         "netconns":   NetworkConnection,
@@ -164,6 +164,7 @@ def _resolve_collection_id(artifact_type: str, artifact_ids: list[int], db: Sess
         "cron":       CronJob,
         "services":   SystemdService,
         "rcscripts":  RcScript,
+        "syslog":     SyslogEntry,
     }
     model = _MODEL_MAP[artifact_type]
     row = db.query(model).filter(model.id == artifact_ids[0]).first()

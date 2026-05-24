@@ -127,9 +127,9 @@ const pickerPartial = computed(() => {
 async function onPickerApply(tagId) {
   if (activePickerKey.value === 'bulk') {
     const grouped = groupSelectedByType(selectedEvents.value)
-    for (const [type, ids] of Object.entries(grouped)) {
-      await tagsStore.applyTag(tagId, type, ids)
-    }
+    await Promise.allSettled(
+      Object.entries(grouped).map(([type, ids]) => tagsStore.applyTag(tagId, type, ids))
+    )
   } else {
     const ev = (props.events ?? []).find(e => rowKey(e) === activePickerKey.value)
     if (ev) await tagsStore.applyTag(tagId, ev.artifact_type, [ev.id])
@@ -139,9 +139,9 @@ async function onPickerApply(tagId) {
 async function onPickerRemove(tagId) {
   if (activePickerKey.value === 'bulk') {
     const grouped = groupSelectedByType(selectedEvents.value)
-    for (const [type, ids] of Object.entries(grouped)) {
-      await tagsStore.removeTag(tagId, type, ids)
-    }
+    await Promise.allSettled(
+      Object.entries(grouped).map(([type, ids]) => tagsStore.removeTag(tagId, type, ids))
+    )
   } else {
     const ev = (props.events ?? []).find(e => rowKey(e) === activePickerKey.value)
     if (ev) await tagsStore.removeTag(tagId, ev.artifact_type, [ev.id])
