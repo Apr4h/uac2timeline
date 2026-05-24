@@ -34,7 +34,7 @@ async function submit() {
       progress.value = Math.round((e.loaded / e.total) * 100)
     })
     emit('close')
-    router.push(`/analysis/${result.collection_id}`)
+    router.push(`/collections`)
   } catch (e) {
     errorMsg.value = e.response?.data?.detail || e.message
   } finally {
