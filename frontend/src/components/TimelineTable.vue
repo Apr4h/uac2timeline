@@ -163,6 +163,40 @@ async function removeTagFromRow(ev, tag) {
   await tagsStore.removeTag(tag.id, ev.artifact_type, [ev.id])
 }
 
+// ── Tag row stripe ────────────────────────────────────────────────────────────
+const TAG_ROW_COLORS = {
+  red:    '#f7768e',
+  orange: '#ff9e64',
+  yellow: '#e0af68',
+  green:  '#9ece6a',
+  teal:   '#73daca',
+  blue:   '#7aa2f7',
+  purple: '#bb9af7',
+  pink:   '#c678dd',
+  gray:   '#565f89',
+}
+
+function rowStripeStyle(ev) {
+  const rowTags = tagsStore.getRowTags(ev.artifact_type, ev.id)
+  if (!rowTags.length) return {}
+  const colors = rowTags.map(t => TAG_ROW_COLORS[t.color] ?? TAG_ROW_COLORS.gray)
+  if (colors.length === 1) {
+    return { boxShadow: `inset 3px 0 0 0 ${colors[0]}` }
+  }
+  const pct = 100 / colors.length
+  const stops = colors.flatMap((c, i) => {
+    const start = (i * pct).toFixed(1) + '%'
+    const end   = ((i + 1) * pct).toFixed(1) + '%'
+    return i === 0 ? [`${c} ${end}`] : [`${c} ${start}`, `${c} ${end}`]
+  }).join(', ')
+  return {
+    backgroundImage:    `linear-gradient(to bottom, ${stops})`,
+    backgroundSize:     '3px 100%',
+    backgroundRepeat:   'no-repeat',
+    backgroundPosition: 'left',
+  }
+}
+
 // ── Type badge colors ─────────────────────────────────────────────────────────
 const TYPE_COLORS = {
   processes:  'bg-purple-900/60 text-purple-300 border-purple-700',
@@ -522,6 +556,7 @@ async function onNoteDeleteConfirm() {
               @contextmenu.prevent="openContextMenu(ev, $event)"
             >
               <td class="sticky left-0 z-10 border-r border-tn-border px-2 py-1.5" @click.stop
+                  :style="rowStripeStyle(ev)"
                   :class="selected.has(rowKey(ev)) ? 'bg-tn-selection group-hover:bg-tn-selection-hover' : 'bg-tn-bg group-hover:bg-tn-raised/50'">
                 <input
                   type="checkbox"
