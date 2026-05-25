@@ -26,3 +26,14 @@ control/
 
 # macOS
 .DS_Store
+
+
+# VSCode
+.vscode/*
+!.vscode/extensions.json
+
+# Vibes
+.gemini
+.claude
+CLAUDE.md
+GEMINI.md
