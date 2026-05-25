@@ -30,7 +30,6 @@ control/
 
 # VSCode
 .vscode/*
-!.vscode/extensions.json
 
 # Vibes
 .gemini
