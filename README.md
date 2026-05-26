@@ -54,8 +54,7 @@ The Celery broker uses the local filesystem — no Redis or RabbitMQ is required
 ## Requirements
 
 - Python 3.10+
-- Node.js 18+
-- [honcho](https://github.com/nicholasamorim/honcho) (optional, for running all three processes with one command)
+- Node.js 18+ *(only needed if you intend to modify and rebuild the frontend)*
 
 ## Installation
 
@@ -64,11 +63,8 @@ The Celery broker uses the local filesystem — no Redis or RabbitMQ is required
 git clone https://github.com/adamaprahamian/uac2timeline.git
 cd uac2timeline
 
-# Install Python dependencies
+# Install Python dependencies (includes honcho)
 pip install -r requirements.txt
-
-# Install frontend dependencies
-cd frontend && npm install && cd ..
 ```
 
 ## Running
@@ -79,15 +75,14 @@ cd frontend && npm install && cd ..
 honcho start
 ```
 
-This starts all three processes defined in `Procfile`:
+This starts both processes defined in `Procfile`:
 
 | Process | Address |
 |---------|---------|
 | FastAPI API server | http://localhost:8000 |
 | Celery worker | — |
-| Vite dev server | http://localhost:5173 |
 
-Open http://localhost:5173 in your browser.
+Open http://localhost:8000 in your browser. FastAPI serves the pre-built frontend directly.
 
 ### Option B — manually
 
@@ -97,18 +92,21 @@ uvicorn backend.app.main:app --reload --port 8000
 
 # Terminal 2: Celery worker
 celery -A backend.app.tasks.celery_app worker --loglevel=info
-
-# Terminal 3: Vite dev server
-cd frontend && npm run dev
 ```
 
-### Production build
+### Frontend development
+
+If you need to modify the frontend, Node.js 18+ is required:
+
+```bash
+cd frontend && npm install && npm run dev
+```
+
+This starts the Vite dev server at http://localhost:5173 (proxies `/api` to port 8000). After making changes, rebuild and commit the output:
 
 ```bash
 cd frontend && npm run build
 ```
-
-The compiled frontend is written to `frontend/dist/`. FastAPI serves it automatically from `/` when `frontend/dist/index.html` exists.
 
 ## Configuration
 
